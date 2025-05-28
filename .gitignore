@@ -1,0 +1,32 @@
+# Dependencies
+node_modules/
+Client/node_modules/
+Server/node_modules/
+
+# Environment files
+.env
+Client/.env
+Server/.env
+
+# Build directories
+dist/
+build/
+Client/dist/
+Server/dist/
+
+# Logs
+logs
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# Editor directories and files
+.vscode/
+.idea/
+*.suo
+*.ntvs*
+*.njsproj
+*.sln
+*.sw?
+.DS_Store
