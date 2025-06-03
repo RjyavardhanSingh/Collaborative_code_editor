@@ -1,0 +1,379 @@
+Key Required Features
+
+
+User Authentication
+Registration, login/logout
+User profile management
+Session management
+
+
+
+Document Management
+Create, read, update, delete code documents
+Document sharing with permissions
+Document organization (folders/projects)
+
+
+
+Real-time Collaboration
+Multi-user simultaneous editing
+Operational transformation for conflict resolution
+Cursor position tracking and visualization
+User presence indicators
+
+
+Code Editor Core
+Syntax highlighting for multiple languages
+Line numbering and code folding
+Auto-indentation and code formatting
+
+
+Version Control
+Document history tracking
+Version comparison and diffing
+Restore to previous versions
+
+
+Communication
+Real-time chat between collaborators
+Notifications for important events
+
+Database Design
+
+user collection
+{
+  _id: ObjectId,
+  username: String,          // Unique username
+  email: String,             // Unique email
+  passwordHash: String,      // Hashed password (using bcrypt)
+  avatar: String,            // URL to avatar image
+  createdAt: Date,
+  updatedAt: Date,
+  lastActive: Date
+}
+
+documents collection
+{
+  _id: ObjectId,
+  title: String,
+  content: String,           // Document content
+  language: String,          // Programming language
+  owner: ObjectId,           // References Users
+  collaborators: [{
+    user: ObjectId,          // References Users
+    permission: String       // "read", "write", "admin"
+  }],
+  isPublic: Boolean,
+  createdAt: Date,
+  updatedAt: Date,
+  lastEditedBy: ObjectId,    // References Users
+  folderId: ObjectId         // References Folders for organization
+}
+
+version collection
+{
+  _id: ObjectId,
+  documentId: ObjectId,      // References Documents
+  content: String,           // Snapshot of content
+  createdBy: ObjectId,       // References Users
+  createdAt: Date,
+  message: String            // Optional commit message
+}
+
+message collection
+{
+  _id: ObjectId,
+  documentId: ObjectId,      // References Documents
+  sender: ObjectId,          // References Users
+  content: String,
+  createdAt: Date
+}
+
+
+activities collection
+{
+  _id: ObjectId,
+  documentId: ObjectId,      // References Documents
+  user: ObjectId,            // References Users
+  action: String,            // "created", "edited", "commented", "shared", "unshared"
+  createdAt: Date,
+  metadata: Object           // Additional context
+}
+
+session collection
+{
+  _id: ObjectId,
+  userId: ObjectId,      // References Users
+  token: String,         // JWT or session token
+  deviceInfo: Object,    // Browser/device information
+  createdAt: Date,
+  expiresAt: Date
+}
+
+Folders/Projects Collection (for better organization)
+{
+  _id: ObjectId,
+  name: String,
+  owner: ObjectId,       // References Users
+  parentFolder: ObjectId, // For nested folders
+  documents: [ObjectId], // References Documents
+  collaborators: [{
+    user: ObjectId,
+    permission: String
+  }],
+  createdAt: Date,
+  updatedAt: Date
+}
+
+
+Invitations Collection
+{
+  _id: ObjectId,
+  documentId: ObjectId,  // References Documents
+  senderId: ObjectId,    // References Users
+  recipientEmail: String,
+  permission: String,    // "read", "write", "admin"
+  status: String,        // "pending", "accepted", "rejected"
+  createdAt: Date,
+  expiresAt: Date
+}
+
+
+
+
+
+
+
+
+
+API Design
+Authentication API
+POST /api/auth/register - Register new user
+POST /api/auth/login - User login
+POST /api/auth/logout - User logout
+GET /api/auth/me - Get current user profile
+Users API
+GET /api/users/:id - Get user profile
+PUT /api/users/:id - Update user profile
+GET /api/users/:id/documents - List user's documents
+Documents API
+POST /api/documents - Create document
+GET /api/documents - List accessible documents
+GET /api/documents/:id - Retrieve document
+PUT /api/documents/:id - Update document
+DELETE /api/documents/:id - Delete document
+POST /api/documents/:id/collaborators - Add collaborator
+DELETE /api/documents/:id/collaborators/:userId - Remove collaborator
+Versions API
+GET /api/documents/:id/versions - List document versions
+GET /api/documents/:id/versions/:versionId - Get specific version
+POST /api/documents/:id/versions - Create new version
+POST /api/documents/:id/restore/:versionId - Restore to version
+Messages API
+GET /api/documents/:id/messages - Get chat history
+POST /api/documents/:id/messages - Send new message
+WebSocket Events (Socket.IO)
+join-document - Connect to document session
+leave-document - Disconnect from document
+document-change - Send/receive document changes
+cursor-position - Send/receive cursor positions
+new-message - Send/receive chat messages
+user-presence - Track active users
+
+Search API:
+
+GET /api/search?q=query - Search across documents
+GET /api/documents/:id/search?q=query - Search within document
+Analytics API:
+
+GET /api/analytics/usage - User activity statistics
+GET /api/documents/:id/analytics - Document activity statistics
+Export/Import API:
+
+GET /api/documents/:id/export/:format - Export document
+POST /api/documents/import - Import document
+
+Implementation Considerations
+Authentication: Clarify whether you're using JWT or session-based auth
+Error Handling: Define standard error response format
+Caching Strategy: Consider Redis for frequently accessed data
+Rate Limiting: Protect sensitive endpoints from abuse
+Logging: Structured logging for debugging and monitoring
+Background Jobs: For notifications, cleanup tasks (consider using a queue like Bull)
+
+
+
+
+
+
+
+
+UI/UX plan
+
+Comprehensive UI/UX Plan for Collaborative Code Editor
+1. User Experience Flow
+Onboarding Flow
+Landing Page: Introduction to the application with clear value proposition
+Registration/Login: Simple, clean forms with validation
+Onboarding Tour: Optional guided tour showing key features
+Dashboard Introduction: First-time user guidance
+Core User Flows
+Document Creation Flow
+
+New document → Choose language → Name document → Start editing
+Collaboration Flow
+
+Document → Share → Invite users → Set permissions → Notification sent
+Editing Flow
+
+Open document → Edit → Save/auto-save → Version history accessible
+Version Control Flow
+
+Access history → Browse versions → Compare → Restore if needed
+
+
+
+
+2. UI Component Architecture
+Layout Components
+AppLayout: Main application frame with navigation and content areas
+Sidebar: Navigation, document organization, collaborators list
+TopBar: Document title, sharing options, user profile
+EditorView: The main code editing interface
+ChatPanel: Collapsible chat interface
+Core Components
+CodeEditor: Monaco/CodeMirror implementation with syntax highlighting
+CollaboratorBadge: Shows user presence and cursor position
+VersionHistory: Timeline of document changes
+ChatInterface: Real-time messaging between collaborators
+DocumentList: Browsable list of accessible documents
+UserAvatar: User representation with status indicators
+Utility Components
+Modal: For settings, sharing, version details
+Tooltip: Contextual help and information
+Notification: System alerts and messages
+DropdownMenu: For actions and settings
+LoadingSpinner: Visual feedback during operations
+ErrorBoundary: For graceful error handling
+
+
+
+
+
+
+3. Page/Screen Designs
+Authentication Pages
+Login/Register: Minimalist design with logo, form, and helpful prompts
+Password Recovery: Simple guided process
+Main Application Pages
+Dashboard
+
+Recent documents
+Pinned/favorite documents
+Activity feed
+Quick-access templates
+Document Editor
+
+Code editor (80% of screen)
+Collaboration panel (collapsible sidebar)
+Chat panel (collapsible bottom or right)
+Action toolbar (top)
+User Profile
+
+User information
+Activity history
+Preferences settings
+Document Management
+
+List/grid view toggle
+Search and filter options
+Folder/project organization
+Bulk actions
+Version History
+
+Timeline visualization
+Diff viewer
+Restore options
+Commit messages
+
+
+
+
+4. Design System
+Color Palette
+Primary: #3B82F6 (bright blue) - Brand color, primary actions
+Secondary: #10B981 (emerald) - Success, confirmation
+Accent: #8B5CF6 (purple) - Highlights, special features
+Neutral: Dark mode focus with #1F2937 (dark gray) background
+Error: #EF4444 (red) - Errors, warnings
+Text: #F9FAFB (white) for dark mode, #111827 (near black) for light mode
+Typography
+Primary Font: Inter or JetBrains Mono (code-friendly)
+Header Sizes: 24px (h1), 20px (h2), 18px (h3), 16px (h4)
+Body Text: 14-16px depending on context
+Code Text: Monospace font at 14px with appropriate line height
+Spacing System
+Base unit of 4px with multipliers (4, 8, 16, 24, 32, 48, 64px)
+Consistent padding and margins throughout the application
+Iconography
+Consistent icon set (Heroicons or Phosphor Icons)
+Visual clarity at various sizes
+Meaningful use of color for status indication
+
+
+
+
+5. Interaction Patterns
+Editing Experience
+Real-time character-by-character updates
+Visual indicators for collaborator positions
+Smooth auto-saving with status indicators
+Auto-completion and intelligent suggestions
+Collaboration Indicators
+Color-coded cursors for different users
+Avatar tooltips showing who's editing what
+Presence indicators (online/offline status)
+Activity notifications for important events
+Feedback Mechanisms
+Micro-interactions for common actions
+Loading states for asynchronous operations
+Success/error messages for user actions
+Undo/redo functionality with visual feedback
+
+
+6. Responsive Design Strategy
+Device Support
+Desktop-first approach (primary use case)
+Tablet support with adjusted layouts
+Mobile view with essential functions only
+Adaptive Layouts
+Collapsible panels on smaller screens
+Simplified toolbars on mobile
+Touch-friendly targets for mobile interactions
+Keyboard shortcuts for power users on desktop
+
+
+7. Implementation Technologies
+Frontend Framework
+React with hooks for state management
+Tailwind CSS for styling (already in project)
+Editor Component
+Monaco Editor or CodeMirror for code editing
+Custom wrappers for collaboration features
+Real-time Features
+Socket.IO client integration with server
+CRDT implementation for conflict resolution (Yjs)
+State Management
+React Context for global state
+Zustand or Redux for complex state needs
+UI Component Libraries
+Headless UI or Radix UI for accessible components
+Custom styling with Tailwind
+
+
+8. Accessibility Considerations
+High contrast mode support
+Keyboard navigation throughout
+Screen reader compatibility
+Focus management for modals and popups
+Color choices considering color blindness
