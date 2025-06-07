@@ -24,6 +24,7 @@ import {
 } from "react-icons/fi";
 import logo from "../../assets/newlogo.png";
 import InvitationModal from "../../components/collaboration/InvitationModal";
+import CollaboratorManagement from "../../components/collaboration/CollaboratorManagement";
 
 export default function DocumentEditor() {
   const { id } = useParams();
@@ -33,6 +34,7 @@ export default function DocumentEditor() {
   const socketRef = useRef(null);
   const yDocRef = useRef(null);
   const providerRef = useRef(null);
+  const messageContainerRef = useRef(null);
 
   const [doc, setDoc] = useState(null);
   const [loading, setLoading] = useState(true);
@@ -51,6 +53,8 @@ export default function DocumentEditor() {
   const [activeUsers, setActiveUsers] = useState([]);
   const [lastSaved, setLastSaved] = useState(null);
   const [isInvitationModalOpen, setIsInvitationModalOpen] = useState(false);
+
+  const [unreadMessageCount, setUnreadMessageCount] = useState(0);
 
   useEffect(() => {
     const fetchDocument = async () => {
@@ -104,65 +108,56 @@ export default function DocumentEditor() {
   }, [id]);
 
   useEffect(() => {
-    if (!doc || loading) return;
+    const socketUrl =
+      import.meta.env.VITE_SOCKET_URL || "http://localhost:5000";
+    socketRef.current = io(socketUrl, {
+      withCredentials: true,
+      query: { documentId: id },
+      auth: { token: localStorage.getItem("authToken") },
+    });
 
-    const initSocket = () => {
-      socketRef.current = io(
-        import.meta.env.VITE_SOCKET_URL || "http://localhost:5000",
-        {
-          auth: {
-            token: localStorage.getItem("authToken"),
-          },
-        }
-      );
+    socketRef.current.emit("join-document", { documentId: id });
 
-      socketRef.current.on("connect", () => {
-        socketRef.current.emit("join-document", {
-          documentId: id,
-          userId: currentuser?._id,
-        });
-      });
+    socketRef.current.on("new-message", (message) => {
+      setMessages((prevMessages) => [...prevMessages, message]);
 
-      socketRef.current.on("user-presence", (users) => {
-        setActiveUsers(users);
-      });
+      if (!isChatOpen) {
+        setUnreadMessageCount((prev) => prev + 1);
+      }
+    });
 
-      socketRef.current.on("new-message", (message) => {
-        setMessages((prevMessages) => [...prevMessages, message]);
-      });
+    socketRef.current.on("user-joined", ({ user, users }) => {
+      setActiveUsers(users);
+    });
 
-      socketRef.current.on("document-saved", () => {
-        setLastSaved(new Date());
-        setIsSaving(false);
-      });
-    };
-
-    initSocket();
+    socketRef.current.on("user-left", ({ userId, users }) => {
+      setActiveUsers(users);
+    });
 
     return () => {
-      if (socketRef.current) {
-        socketRef.current.emit("leave-document", {
-          documentId: id,
-          userId: currentuser?._id,
-        });
-        socketRef.current.disconnect();
-      }
+      socketRef.current.disconnect();
     };
-  }, [doc, id, currentuser, loading]);
+  }, [id, isChatOpen]);
 
   const handleEditorDidMount = (editor, monaco) => {
     editorRef.current = editor;
 
     if (!doc) return;
 
-    editor.setValue(doc.content || "");
-
-    yDocRef.current = new Y.Doc();
-    const yText = yDocRef.current.getText("monaco");
-
-    yText.insert(0, doc.content || "");
-
     try {
+      // Initialize Y.js document
+      yDocRef.current = new Y.Doc();
+      const yText = yDocRef.current.getText("monaco");
+
+      // Only insert content if yText is empty
+      if (yText.toString() === "") {
+        yText.insert(0, doc.content || "");
+      }
+
+      editor.updateOptions({
+        readOnly: !hasWritePermission(),
+      });
+
       const token = localStorage.getItem("authToken");
       const wsUrl =
         import.meta.env.VITE_YWEBSOCKET_URL || "ws://localhost:1234";
@@ -173,43 +168,157 @@ export default function DocumentEditor() {
         id: currentuser?._id ? String(currentuser._id) : "anonymous",
       };
 
-      providerRef.current = new WebsocketProvider(wsUrl, id, yDocRef.current, {
-        params: { token },
-      });
+      console.log("Connecting with user data:", userData);
 
-      providerRef.current.awareness.setLocalState({
-        user: userData,
-      });
-
-      const binding = new MonacoBinding(
-        yText,
-        editorRef.current.getModel(),
-        new Set([editorRef.current]),
-        providerRef.current.awareness
-      );
-    } catch (err) {
-      console.error("Failed to initialize collaborative editing:", err);
-    }
-
-    editorRef.current.updateOptions({
-      readOnly: !hasWritePermission(),
-    });
-
-    const disposable = editorRef.current.onDidChangeModelContent(() => {
-      if (socketRef.current) {
-        socketRef.current.emit("document-change", {
-          documentId: id,
-          userId: currentuser?._id,
-        });
-      }
-    });
-
-    return () => {
-      disposable.dispose();
       if (providerRef.current) {
         providerRef.current.disconnect();
       }
-    };
+
+      providerRef.current = new WebsocketProvider(
+        wsUrl,
+        `document-${id}`,
+        yDocRef.current,
+        {
+          params: { token },
+          connect: true,
+        }
+      );
+
+      const awareness = providerRef.current.awareness;
+
+      console.log("Provider connected:", providerRef.current.wsconnected);
+
+      awareness.setLocalState({
+        user: userData,
+        cursor: null,
+      });
+
+      console.log("Current awareness state:", awareness.getLocalState());
+      console.log(
+        "All awareness states:",
+        Array.from(awareness.getStates().entries())
+      );
+
+      // Create Monaco binding with proper configuration
+      new MonacoBinding(
+        yText,
+        editor.getModel(),
+        new Set([editor]),
+        awareness,
+        {
+          // Optional: set cursor style
+          cursorStyle: "line",
+          // Enable awareness of remote cursors
+          awareness: true,
+        }
+      );
+
+      const remoteCursorDecorations = new Map();
+
+      let lastCursorUpdateTime = 0;
+      editor.onDidChangeCursorPosition((e) => {
+        const now = Date.now();
+        if (now - lastCursorUpdateTime < 50) return;
+        lastCursorUpdateTime = now;
+
+        const model = editor.getModel();
+        if (!model) return;
+
+        const position = e.position;
+        const offset = model.getOffsetAt(position);
+
+        awareness.setLocalStateField("cursor", {
+          index: offset,
+          head: offset,
+          anchor: offset,
+        });
+      });
+
+      awareness.on("change", () => {
+        const model = editor.getModel();
+        if (!model) return;
+
+        console.log("Awareness change detected!");
+        console.log("All states:", Array.from(awareness.getStates().entries()));
+
+        // Clear previous decorations
+        editor.deltaDecorations(
+          Array.from(remoteCursorDecorations.values()).flat(),
+          []
+        );
+        remoteCursorDecorations.clear();
+
+        // Add decorations for each remote user
+        awareness.getStates().forEach((state, clientId) => {
+          if (clientId !== awareness.clientID && state.user && state.cursor) {
+            console.log(
+              `Rendering cursor for user: ${state.user.name} at position: ${state.cursor.index}`
+            );
+
+            // Ensure style is added
+            addRemoteCursorStyle(clientId, state.user.color);
+
+            try {
+              const position = model.getPositionAt(state.cursor.index);
+
+              // Create more visible decorations with z-index
+              const decorations = [];
+
+              // Cursor line
+              decorations.push({
+                range: new monaco.Range(
+                  position.lineNumber,
+                  position.column,
+                  position.lineNumber,
+                  position.column + 1
+                ),
+                options: {
+                  className: `remote-cursor-${clientId}`,
+                  hoverMessage: { value: state.user.name },
+                  stickiness:
+                    monaco.editor.TrackedRangeStickiness
+                      .NeverGrowsWhenTypingAtEdges,
+                  zIndex: 100,
+                },
+              });
+
+              // Flag with username
+              decorations.push({
+                range: new monaco.Range(
+                  position.lineNumber,
+                  position.column,
+                  position.lineNumber,
+                  position.column
+                ),
+                options: {
+                  beforeContentClassName: `remote-cursor-${clientId}-before`,
+                  afterContentClassName: `remote-cursor-${clientId}-flag`,
+                  afterContent: state.user.name,
+                  stickiness:
+                    monaco.editor.TrackedRangeStickiness
+                      .NeverGrowsWhenTypingAtEdges,
+                  zIndex: 1000,
+                },
+              });
+
+              // Apply decorations and store IDs
+              const ids = editor.deltaDecorations([], decorations);
+              remoteCursorDecorations.set(clientId, ids);
+
+              console.log(
+                `Applied cursor decoration for ${state.user.name} at line ${position.lineNumber}, column ${position.column}`
+              );
+            } catch (err) {
+              console.error("Error rendering remote cursor:", err);
+            }
+          }
+        });
+      });
+
+      console.log("Y.js collaborative editing initialized successfully");
+    } catch (err) {
+      console.error("Failed to initialize collaborative editing:", err);
+    }
   };
 
   const getRandomColor = (userId) => {
@@ -280,11 +389,10 @@ export default function DocumentEditor() {
     if (!newMessage.trim()) return;
 
     try {
-      const { data } = await api.post(`/api/documents/${id}/messages`, {
+      await api.post(`/api/documents/${id}/messages`, {
         content: newMessage,
       });
 
-      setMessages((prevMessages) => [...prevMessages, data]);
       setNewMessage("");
     } catch (err) {
       console.error("Failed to send message:", err);
@@ -412,6 +520,36 @@ export default function DocumentEditor() {
     return extensionMap[ext] || "plaintext";
   };
 
+  const handleOpenChat = () => {
+    setIsCollaboratorsOpen(false);
+    setIsVersionHistoryOpen(false);
+    setIsChatOpen(!isChatOpen);
+    if (!isChatOpen) {
+      setUnreadMessageCount(0);
+    }
+  };
+
+  useEffect(() => {
+    if (messageContainerRef.current && isChatOpen) {
+      const scrollHeight = messageContainerRef.current.scrollHeight;
+      messageContainerRef.current.scrollTo({
+        top: scrollHeight,
+        behavior: "smooth",
+      });
+    }
+  }, [messages, isChatOpen]);
+
+  useEffect(() => {
+    const intervalId = setInterval(() => {
+      if (activeUsers.length > 0) {
+        const count = activeUsers.length;
+        window.document.title = `${doc?.title} (${count} active) | DevUnity`;
+      }
+    }, 10000);
+
+    return () => clearInterval(intervalId);
+  }, [activeUsers, doc]);
+
   if (loading) {
     return (
       <div className="min-h-screen bg-slate-900 flex items-center justify-center">
@@ -439,6 +577,48 @@ export default function DocumentEditor() {
       </div>
     );
   }
+
+  const addRemoteCursorStyle = (clientId, color) => {
+    const styleId = `remote-cursor-${clientId}-style`;
+
+    const existingStyle = document.getElementById(styleId);
+    if (existingStyle) {
+      existingStyle.parentNode.removeChild(existingStyle);
+    }
+
+    const style = document.createElement("style");
+    style.id = styleId;
+    style.innerHTML = `
+      .remote-cursor-${clientId} {
+        position: relative;
+        border-left: 4px solid ${color} !important;
+        z-index: 100 !important;
+      }
+      .remote-cursor-${clientId}-before {
+        position: absolute;
+        border-left: 4px solid ${color} !important;
+        height: 100%;
+        z-index: 100 !important;
+      }
+      .remote-cursor-${clientId}-flag {
+        position: absolute;
+        left: -2px;
+        top: -20px;
+        font-size: 12px;
+        padding: 2px 6px;
+        line-height: 16px;
+        background-color: ${color} !important;
+        color: white !important;
+        z-index: 1000 !important;
+        white-space: nowrap;
+        border-radius: 3px;
+        font-weight: bold;
+        pointer-events: none;
+        box-shadow: 0 2px 4px rgba(0,0,0,0.5) !important;
+      }
+    `;
+    document.head.appendChild(style);
+  };
 
   return (
     <div className="min-h-screen bg-slate-900 flex flex-col">
@@ -514,12 +694,8 @@ export default function DocumentEditor() {
             </button>
 
             <button
-              onClick={() => {
-                setIsCollaboratorsOpen(false);
-                setIsVersionHistoryOpen(false);
-                setIsChatOpen(!isChatOpen);
-              }}
-              className={`p-2 rounded ${
+              onClick={handleOpenChat}
+              className={`p-2 rounded relative ${
                 isChatOpen
                   ? "bg-blue-600 text-white"
                   : "text-slate-400 hover:text-white hover:bg-slate-700"
@@ -527,6 +703,11 @@ export default function DocumentEditor() {
               title="Chat"
             >
               <FiMessageSquare />
+              {unreadMessageCount > 0 && !isChatOpen && (
+                <span className="absolute -top-1 -right-1 bg-red-500 text-white text-xs rounded-full w-5 h-5 flex items-center justify-center">
+                  {unreadMessageCount > 9 ? "9+" : unreadMessageCount}
+                </span>
+              )}
             </button>
 
             <button
@@ -609,88 +790,15 @@ export default function DocumentEditor() {
           />
         </div>
         {isCollaboratorsOpen && (
-          <motion.div
-            initial={{ x: 300, opacity: 0 }}
-            animate={{ x: 0, opacity: 1 }}
-            exit={{ x: 300, opacity: 0 }}
-            className="absolute top-0 right-0 h-full w-[300px] border-l border-slate-700 bg-slate-800 overflow-y-auto shadow-xl z-10"
-          >
-            <div className="p-4">
-              <div className="flex items-center justify-between mb-4">
-                <h2 className="text-white font-bold">Collaborators</h2>
-                <button
-                  onClick={() => setIsCollaboratorsOpen(false)}
-                  className="text-slate-400 hover:text-white"
-                >
-                  <FiX />
-                </button>
-              </div>
-
-              <div className="mb-6">
-                <h3 className="text-slate-300 text-sm font-medium mb-2">
-                  Active Users
-                </h3>
-                <div className="space-y-2">
-                  {activeUsers.map((user) => (
-                    <div
-                      key={user.id}
-                      className="flex items-center p-2 bg-slate-700/50 rounded"
-                    >
-                      <div
-                        className="w-3 h-3 rounded-full mr-2"
-                        style={{ backgroundColor: user.color }}
-                      ></div>
-                      <span className="text-white text-sm">{user.name}</span>
-                      <div className="ml-auto flex items-center">
-                        <div className="w-2 h-2 bg-green-500 rounded-full"></div>
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              </div>
-
-              <div>
-                <h3 className="text-slate-300 text-sm font-medium mb-2">
-                  All Collaborators
-                </h3>
-                <div className="space-y-2">
-                  {collaborators.map((collab) => (
-                    <div
-                      key={collab.user._id}
-                      className="flex items-center p-2 bg-slate-700/50 rounded"
-                    >
-                      {collab.user.avatar ? (
-                        <img
-                          src={collab.user.avatar}
-                          alt={collab.user.username}
-                          className="w-6 h-6 rounded-full mr-2"
-                        />
-                      ) : (
-                        <div className="w-6 h-6 rounded-full bg-blue-600 flex items-center justify-center text-white text-xs mr-2">
-                          {collab.user.username.charAt(0).toUpperCase()}
-                        </div>
-                      )}
-                      <span className="text-white text-sm">
-                        {collab.user.username}
-                      </span>
-                      <span className="ml-auto text-xs bg-slate-600 px-2 py-0.5 rounded">
-                        {collab.permission}
-                      </span>
-                    </div>
-                  ))}
-                </div>
-
-                {hasWritePermission() && (
-                  <button
-                    onClick={handleShareDocument}
-                    className="mt-4 w-full py-2 bg-blue-600 text-white rounded hover:bg-blue-700 transition-colors text-sm"
-                  >
-                    Invite More
-                  </button>
-                )}
-              </div>
-            </div>
-          </motion.div>
+          <CollaboratorManagement
+            documentId={id}
+            collaborators={collaborators}
+            setCollaborators={setCollaborators}
+            activeUsers={activeUsers}
+            currentuser={currentuser}
+            onClose={() => setIsCollaboratorsOpen(false)}
+            onInviteClick={handleShareDocument}
+          />
         )}
 
         {isChatOpen && (
@@ -710,7 +818,10 @@ export default function DocumentEditor() {
               </button>
             </div>
 
-            <div className="flex-1 overflow-y-auto p-4 space-y-4">
+            <div
+              ref={messageContainerRef}
+              className="flex-1 overflow-y-auto p-4 space-y-4"
+            >
               {messages.length > 0 ? (
                 messages.map((message) => (
                   <div

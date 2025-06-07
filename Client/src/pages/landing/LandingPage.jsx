@@ -1,4 +1,4 @@
-import Navbar from "../../components/layout/NavBar"; // Fix capitalization if needed
+import Navbar from "../../components/layout/NavBar";
 import { Footer } from "../../components/layout/Footer";
 import { HeroSection } from "../../components/landing/HeroSection";
 import { FeaturesSection } from "../../components/landing/FeaturesSection";
@@ -27,8 +27,6 @@ export default function LandingPage() {
         </div>
         <div className="fixed inset-0 bg-gradient-to-b from-slate-900/60 via-slate-900/70 to-slate-900/90 z-1"></div>
       </div>
-
-      {/* Pass required props to Navbar */}
       <Navbar
         title="DevUnity"
         actions={
@@ -48,7 +46,6 @@ export default function LandingPage() {
           </div>
         }
       />
-
       <main className="flex-grow relative z-10">
         <HeroSection />
         <FeaturesSection />

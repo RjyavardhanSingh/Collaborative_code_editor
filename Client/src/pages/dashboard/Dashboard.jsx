@@ -286,8 +286,6 @@ export default function Dashboard() {
       </div>
     </motion.div>
   );
-
-  // Start rendering
   if (isLoading) {
     return (
       <div className="min-h-screen bg-slate-900 flex items-center justify-center">

@@ -1,6 +1,5 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { Link, useNavigate, useLocation } from "react-router-dom";
-import { useAuth } from "../../context/AuthProvider";
 import {
   FiMenu,
   FiX,
@@ -9,10 +8,12 @@ import {
   FiSettings,
   FiMail,
   FiChevronLeft,
+  FiBell,
 } from "react-icons/fi";
-import logo from "../../assets/newlogo.png";
+import { useAuth } from "../../context/AuthProvider";
 import api from "../../lib/api";
 import UserInvitations from "../collaboration/UserInvitations";
+import logo from "../../assets/newlogo.png";
 
 export default function Navbar({ children, showBackButton, title, actions }) {
   const { currentuser, logout } = useAuth();
@@ -22,8 +23,9 @@ export default function Navbar({ children, showBackButton, title, actions }) {
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
   const [invitationsOpen, setInvitationsOpen] = useState(false);
   const [invitationCount, setInvitationCount] = useState(0);
+  const userMenuRef = useRef(null);
 
-  // Check if we're on the landing page
+ 
   const isLandingPage = location.pathname === "/";
 
   useEffect(() => {
@@ -38,17 +40,29 @@ export default function Navbar({ children, showBackButton, title, actions }) {
 
     if (currentuser) {
       fetchInvitationCount();
-      const interval = setInterval(fetchInvitationCount, 60000);
+      const interval = setInterval(fetchInvitationCount, 30000);
       return () => clearInterval(interval);
     }
   }, [currentuser]);
+
+  useEffect(() => {
+    const handleClickOutside = (event) => {
+      if (userMenuRef.current && !userMenuRef.current.contains(event.target)) {
+        setIsProfileOpen(false);
+      }
+    };
+
+    document.addEventListener("mousedown", handleClickOutside);
+    return () => {
+      document.removeEventListener("mousedown", handleClickOutside);
+    };
+  }, []);
 
   const handleLogout = () => {
     logout();
     navigate("/");
   };
 
- 
   if (isLandingPage && !currentuser) {
     return (
       <header className="bg-transparent py-4 px-6 relative z-10">
@@ -141,8 +155,6 @@ export default function Navbar({ children, showBackButton, title, actions }) {
       </header>
     );
   }
-
-  // Default authenticated navbar
   return (
     <header className="bg-slate-800 border-b border-slate-700 py-2 px-4">
       <div className="flex items-center justify-between">
@@ -168,8 +180,6 @@ export default function Navbar({ children, showBackButton, title, actions }) {
 
         <div className="flex items-center space-x-2">
           {actions}
-
-          {/* Only show invitations for authenticated users */}
           {currentuser && invitationCount > 0 && (
             <button
               onClick={() => setInvitationsOpen(!invitationsOpen)}
@@ -181,70 +191,52 @@ export default function Navbar({ children, showBackButton, title, actions }) {
               </span>
             </button>
           )}
-
-          {/* Profile button for authenticated users */}
           {currentuser && (
-            <div className="relative">
+            <div className="relative" ref={userMenuRef}>
               <button
                 onClick={() => setIsProfileOpen(!isProfileOpen)}
-                className="flex items-center focus:outline-none"
+                className="flex items-center space-x-2 focus:outline-none"
               >
-                <div className="w-8 h-8 overflow-hidden rounded-full bg-blue-600 flex items-center justify-center">
-                  {currentuser?.avatar ? (
-                    <img
-                      src={currentuser.avatar}
-                      alt={currentuser.username}
-                      className="w-full h-full object-cover"
-                    />
-                  ) : (
-                    <span className="text-white text-sm font-medium">
-                      {currentuser?.username?.charAt(0).toUpperCase()}
-                    </span>
-                  )}
-                </div>
+                {currentuser?.avatar ? (
+                  <img
+                    src={currentuser.avatar}
+                    alt={currentuser.username}
+                    className="w-8 h-8 rounded-full"
+                  />
+                ) : (
+                  <div className="w-8 h-8 bg-blue-600 rounded-full flex items-center justify-center text-white">
+                    {currentuser?.username?.charAt(0)?.toUpperCase() || "U"}
+                  </div>
+                )}
+                <span className="text-white hidden sm:inline">
+                  {currentuser?.username || "Guest"}
+                </span>
               </button>
 
               {isProfileOpen && (
-                <div className="absolute right-0 mt-2 w-48 bg-slate-800 rounded-md shadow-lg z-10 border border-slate-700">
-                  <div className="p-3 border-b border-slate-700">
-                    <p className="text-white font-medium">
-                      {currentuser?.username}
-                    </p>
-                    <p className="text-slate-400 text-sm truncate">
-                      {currentuser?.email}
-                    </p>
-                  </div>
-                  <div className="p-2">
-                    <Link
-                      to="/profile"
-                      className="flex items-center px-3 py-2 rounded-md text-white hover:bg-slate-700"
-                      onClick={() => setIsProfileOpen(false)}
-                    >
-                      <FiUser className="mr-2" />
-                      Profile
-                    </Link>
-                    <Link
-                      to="/settings"
-                      className="flex items-center px-3 py-2 rounded-md text-white hover:bg-slate-700"
-                      onClick={() => setIsProfileOpen(false)}
-                    >
-                      <FiSettings className="mr-2" />
-                      Settings
-                    </Link>
-                    <button
-                      onClick={handleLogout}
-                      className="flex items-center w-full text-left px-3 py-2 rounded-md text-white hover:bg-slate-700"
-                    >
-                      <FiLogOut className="mr-2" />
-                      Logout
-                    </button>
-                  </div>
+                <div className="absolute right-0 mt-2 w-48 bg-slate-800 border border-slate-700 rounded-md shadow-lg py-1 z-50">
+                  <Link
+                    to="/dashboard"
+                    className="block px-4 py-2 text-sm text-slate-300 hover:bg-slate-700"
+                  >
+                    <FiHome className="inline mr-2" /> Dashboard
+                  </Link>
+                  <Link
+                    to="/profile"
+                    className="block px-4 py-2 text-sm text-slate-300 hover:bg-slate-700"
+                  >
+                    <FiUser className="inline mr-2" /> Profile
+                  </Link>
+                  <button
+                    onClick={handleLogout}
+                    className="w-full text-left px-4 py-2 text-sm text-slate-300 hover:bg-slate-700"
+                  >
+                    <FiLogOut className="inline mr-2" /> Logout
+                  </button>
                 </div>
               )}
             </div>
           )}
-
-          {/* Login/Register buttons for non-authenticated users who aren't on landing page */}
           {!currentuser && !isLandingPage && (
             <div className="flex items-center space-x-2">
               <Link
@@ -274,8 +266,6 @@ export default function Navbar({ children, showBackButton, title, actions }) {
       {invitationsOpen && currentuser && (
         <UserInvitations onClose={() => setInvitationsOpen(false)} />
       )}
-
-      {/* Mobile menu for authenticated pages */}
       {isMobileMenuOpen && !isLandingPage && (
         <div className="md:hidden mt-2 bg-slate-800 rounded-md border border-slate-700 p-2 space-y-2">
           <Link

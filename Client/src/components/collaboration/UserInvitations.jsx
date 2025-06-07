@@ -52,7 +52,24 @@ export default function UserInvitations({ onClose }) {
   };
 
   if (invitations.length === 0 && !loading) {
-    return null;
+    return (
+      <motion.div
+        initial={{ opacity: 0, y: -20 }}
+        animate={{ opacity: 1, y: 0 }}
+        exit={{ opacity: 0, y: -20 }}
+        className="absolute top-16 right-4 w-80 bg-slate-800 rounded-lg shadow-xl border border-slate-700 z-50"
+      >
+        <div className="flex justify-between items-center border-b border-slate-700 p-3">
+          <h3 className="font-medium text-white">Document Invitations</h3>
+          <button onClick={onClose} className="text-slate-400 hover:text-white">
+            <FiX size={18} />
+          </button>
+        </div>
+        <div className="p-4 text-center text-slate-400">
+          No pending invitations
+        </div>
+      </motion.div>
+    );
   }
 
   return (
@@ -87,7 +104,7 @@ export default function UserInvitations({ onClose }) {
                   </div>
                   <div>
                     <p className="text-white text-sm font-medium">
-                      {invitation.sender.username || "Someone"}
+                      {invitation.sender?.username || "Someone"}
                     </p>
                     <p className="text-xs text-slate-400">
                       invited you to collaborate
@@ -96,7 +113,7 @@ export default function UserInvitations({ onClose }) {
                 </div>
 
                 <p className="text-sm text-white font-medium mb-1">
-                  {invitation.document.title}
+                  {invitation.document?.title || "Untitled Document"}
                 </p>
                 <p className="text-xs text-slate-400 mb-3">
                   Permission:{" "}

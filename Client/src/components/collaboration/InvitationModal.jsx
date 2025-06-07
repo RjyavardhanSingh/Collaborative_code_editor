@@ -1,6 +1,14 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { motion } from "framer-motion";
-import { FiX, FiMail, FiClock } from "react-icons/fi";
+import {
+  FiX,
+  FiMail,
+  FiClock,
+  FiLink,
+  FiCopy,
+  FiCheck,
+  FiUsers,
+} from "react-icons/fi";
 import api from "../../lib/api.js";
 
 export default function InvitationModal({ documentId, onClose }) {
@@ -10,10 +18,25 @@ export default function InvitationModal({ documentId, onClose }) {
   const [email, setEmail] = useState("");
   const [permission, setPermission] = useState("read");
   const [sending, setSending] = useState(false);
+  const [activeTab, setActiveTab] = useState("email"); // "email" or "link"
+  const [linkPermission, setLinkPermission] = useState("read");
+  const [linkCopied, setLinkCopied] = useState(false);
+  const [generatedLink, setGeneratedLink] = useState("");
+  const [successMessage, setSuccessMessage] = useState("");
+  const linkInputRef = useRef(null);
 
   useEffect(() => {
     fetchInvitations();
   }, [documentId]);
+
+  // Generate a secure random string for link tokens
+  const generateSecureToken = () => {
+    const array = new Uint8Array(16);
+    window.crypto.getRandomValues(array);
+    return Array.from(array, (byte) => byte.toString(16).padStart(2, "0")).join(
+      ""
+    );
+  };
 
   const fetchInvitations = async () => {
     try {
@@ -57,6 +80,9 @@ export default function InvitationModal({ documentId, onClose }) {
 
       if (data.invitation) {
         setSentInvitations((prev) => [...prev, data.invitation]);
+        setSuccessMessage("Invitation sent. The user will need to accept it.");
+      } else {
+        setSuccessMessage("User added as collaborator immediately!");
       }
 
       setEmail("");
@@ -77,6 +103,50 @@ export default function InvitationModal({ documentId, onClose }) {
       );
     } catch (err) {
       setError("Failed to cancel invitation");
+    }
+  };
+
+  const generateShareableLink = () => {
+    // Generate a token that will be used in the URL to identify the document and permission
+    const token = generateSecureToken();
+
+    const linkData = {
+      documentId,
+      permission: linkPermission,
+      created: new Date().toISOString(),
+    };
+
+    // Store in localStorage
+    const existingLinks = JSON.parse(
+      localStorage.getItem("shareLinks") || "{}"
+    );
+    existingLinks[token] = linkData;
+    localStorage.setItem("shareLinks", JSON.stringify(existingLinks));
+
+    // Create the shareable link with the token
+    const baseUrl = window.location.origin;
+    const shareableLink = `${baseUrl}/shared/${token}`;
+
+    setGeneratedLink(shareableLink);
+    return shareableLink;
+  };
+
+  const handleGenerateLink = () => {
+    const link = generateShareableLink();
+    setGeneratedLink(link);
+    setLinkCopied(false);
+  };
+
+  const handleCopyLink = () => {
+    if (linkInputRef.current) {
+      linkInputRef.current.select();
+      document.execCommand("copy");
+      setLinkCopied(true);
+
+      // Reset copied state after 3 seconds
+      setTimeout(() => {
+        setLinkCopied(false);
+      }, 3000);
     }
   };
 
@@ -106,57 +176,150 @@ export default function InvitationModal({ documentId, onClose }) {
         </div>
 
         <div className="p-4">
-          <form onSubmit={handleSendInvitation}>
-            <div className="mb-4">
-              <label
-                htmlFor="email"
-                className="block text-sm font-medium text-slate-300 mb-1"
-              >
-                Email Address
-              </label>
-              <input
-                id="email"
-                type="email"
-                value={email}
-                onChange={(e) => setEmail(e.target.value)}
-                className="w-full bg-slate-700 border border-slate-600 rounded-md px-3 py-2 text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
-                placeholder="colleague@example.com"
-              />
-            </div>
-
-            <div className="mb-4">
-              <label
-                htmlFor="permission"
-                className="block text-sm font-medium text-slate-300 mb-1"
-              >
-                Permission Level
-              </label>
-              <select
-                id="permission"
-                value={permission}
-                onChange={(e) => setPermission(e.target.value)}
-                className="w-full bg-slate-700 border border-slate-600 rounded-md px-3 py-2 text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
-              >
-                <option value="read">Read only</option>
-                <option value="write">Can edit</option>
-                <option value="admin">Admin</option>
-              </select>
-            </div>
-
-            {error && (
-              <div className="mb-4 p-2 bg-red-500/20 border border-red-500/40 rounded text-red-400 text-sm">
-                {error}
-              </div>
-            )}
-
+          <div className="flex border-b border-slate-700 mb-4">
             <button
-              type="submit"
-              disabled={sending}
-              className="w-full bg-blue-600 hover:bg-blue-700 text-white font-medium py-2 px-4 rounded-md transition-colors disabled:opacity-70 disabled:cursor-not-allowed"
+              onClick={() => setActiveTab("email")}
+              className={`flex items-center py-2 px-4 border-b-2 font-medium text-sm ${
+                activeTab === "email"
+                  ? "border-blue-500 text-blue-500"
+                  : "border-transparent text-slate-400 hover:text-slate-300"
+              }`}
             >
-              {sending ? "Sending..." : "Send Invitation"}
+              <FiMail className="mr-2" /> Email Invite
             </button>
-          </form>
+            <button
+              onClick={() => setActiveTab("link")}
+              className={`flex items-center py-2 px-4 border-b-2 font-medium text-sm ${
+                activeTab === "link"
+                  ? "border-blue-500 text-blue-500"
+                  : "border-transparent text-slate-400 hover:text-slate-300"
+              }`}
+            >
+              <FiLink className="mr-2" /> Share Link
+            </button>
+          </div>
+          {activeTab === "email" && (
+            <form onSubmit={handleSendInvitation}>
+              <div className="mb-4">
+                <label
+                  htmlFor="email"
+                  className="block text-sm font-medium text-slate-300 mb-1"
+                >
+                  Email Address
+                </label>
+                <input
+                  id="email"
+                  type="email"
+                  value={email}
+                  onChange={(e) => setEmail(e.target.value)}
+                  className="w-full bg-slate-700 border border-slate-600 rounded-md px-3 py-2 text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  placeholder="colleague@example.com"
+                />
+              </div>
+
+              <div className="mb-4">
+                <label
+                  htmlFor="permission"
+                  className="block text-sm font-medium text-slate-300 mb-1"
+                >
+                  Permission Level
+                </label>
+                <select
+                  id="permission"
+                  value={permission}
+                  onChange={(e) => setPermission(e.target.value)}
+                  className="w-full bg-slate-700 border border-slate-600 rounded-md px-3 py-2 text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
+                >
+                  <option value="read">Read only</option>
+                  <option value="write">Can edit</option>
+                  <option value="admin">Admin</option>
+                </select>
+              </div>
+
+              {error && (
+                <div className="mb-4 p-2 bg-red-500/20 border border-red-500/40 rounded text-red-400 text-sm">
+                  {error}
+                </div>
+              )}
+              {successMessage && (
+                <div className="mb-4 p-2 bg-green-500/20 border border-green-500/40 rounded text-green-400 text-sm">
+                  {successMessage}
+                </div>
+              )}
+
+              <button
+                type="submit"
+                disabled={sending}
+                className="w-full bg-blue-600 hover:bg-blue-700 text-white font-medium py-2 px-4 rounded-md transition-colors disabled:opacity-70 disabled:cursor-not-allowed"
+              >
+                {sending ? "Sending..." : "Send Invitation"}
+              </button>
+            </form>
+          )}
+          {activeTab === "link" && (
+            <div>
+              <div className="mb-4">
+                <label
+                  htmlFor="linkPermission"
+                  className="block text-sm font-medium text-slate-300 mb-1"
+                >
+                  Anyone with the link can:
+                </label>
+                <select
+                  id="linkPermission"
+                  value={linkPermission}
+                  onChange={(e) => setLinkPermission(e.target.value)}
+                  className="w-full bg-slate-700 border border-slate-600 rounded-md px-3 py-2 text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
+                >
+                  <option value="read">View only</option>
+                  <option value="write">Edit</option>
+                  <option value="admin">Admin (Full control)</option>
+                </select>
+              </div>
+
+              <button
+                onClick={handleGenerateLink}
+                className="w-full mb-4 bg-blue-600 hover:bg-blue-700 text-white font-medium py-2 px-4 rounded-md transition-colors"
+              >
+                Generate Shareable Link
+              </button>
+
+              {generatedLink && (
+                <div className="mt-4">
+                  <label
+                    htmlFor="shareableLink"
+                    className="block text-sm font-medium text-slate-300 mb-1"
+                  >
+                    Shareable Link
+                  </label>
+                  <div className="flex">
+                    <input
+                      ref={linkInputRef}
+                      id="shareableLink"
+                      type="text"
+                      readOnly
+                      value={generatedLink}
+                      className="flex-1 bg-slate-700 border border-slate-600 rounded-l-md px-3 py-2 text-white focus:outline-none"
+                    />
+                    <button
+                      onClick={handleCopyLink}
+                      className="bg-slate-600 hover:bg-slate-500 px-3 rounded-r-md border border-slate-600 flex items-center justify-center"
+                    >
+                      {linkCopied ? (
+                        <FiCheck className="text-green-400" />
+                      ) : (
+                        <FiCopy className="text-slate-300" />
+                      )}
+                    </button>
+                  </div>
+                  <p className="mt-2 text-xs text-slate-400">
+                    Anyone with this link can access this document with the
+                    selected permissions
+                  </p>
+                </div>
+              )}
+            </div>
+          )}
 
           <div className="mt-6">
             <h3 className="text-lg font-medium text-white mb-2">
