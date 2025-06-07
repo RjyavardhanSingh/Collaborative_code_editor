@@ -65,7 +65,7 @@ export const login = async (req, res) => {
         userAgent: req.headers["user-agent"],
         ip: req.ip,
       },
-      expiresAt: new Date(Date.now()+30*24*60*60*1000)
+      expiresAt: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000),
     });
 
     res.json({
@@ -73,6 +73,7 @@ export const login = async (req, res) => {
       username: user.username,
       avatar: user.avatar,
       token,
+      onboardingCompleted: user.onboardingCompleted,
     });
   } catch (error) {
     res.status(500).json({ message: error.message });
@@ -95,8 +96,9 @@ export const logout = async (req, res) => {
 
 export const getMe = async (req, res) => {
   try {
-    res.json(req.user);
+    const user = await User.findById(req.user._id).select("-passwordHash");
+    res.json(user);
   } catch (error) {
-    res;
+    res.status(500).json({ message: error.message });
   }
 };

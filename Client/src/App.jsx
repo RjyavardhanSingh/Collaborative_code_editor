@@ -1,11 +1,12 @@
 import React from 'react'
+import { useRoutes} from 'react-router-dom'
+import {routes} from './routes'
+import {AuthProvider} from './context/AuthProvider'
 
 const App = () => {
-  return (
-    <div className='text-amber-400 text-9xl flex justify-center items-center h-screen' >
-      Hello world
-    </div>
-  )
+  const routing = useRoutes(routes)
+
+  return <AuthProvider>{routing}</AuthProvider>
 }
 
 export default App

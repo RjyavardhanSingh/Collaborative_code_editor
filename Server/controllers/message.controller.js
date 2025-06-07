@@ -30,10 +30,13 @@ export const createMessage = async (req, res) => {
     
     await message.populate('sender', 'username avatar')
     
-    req.io.to(`document:${req.params.id}`).emit('new-message', message)
+    if (req.io) {
+      req.io.to(`document:${req.params.id}`).emit('new-message', message)
+    }
     
     res.status(201).json(message)
   } catch (error) {
+    console.error("Message creation error:", error);
     res.status(500).json({ message: error.message })
   }
 }

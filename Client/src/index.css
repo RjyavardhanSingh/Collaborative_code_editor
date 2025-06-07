@@ -1,1 +1,7 @@
 @import "tailwindcss";
+
+.filter-glow {
+  filter: blur(8px);
+  transform-origin: center;
+  z-index: -1;
+}

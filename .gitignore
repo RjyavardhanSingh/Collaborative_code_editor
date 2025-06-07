@@ -30,3 +30,7 @@ yarn-error.log*
 *.sln
 *.sw?
 .DS_Store
+
+#extra files
+plant.txt
+prompt.txt
