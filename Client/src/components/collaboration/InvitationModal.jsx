@@ -29,7 +29,6 @@ export default function InvitationModal({ documentId, onClose }) {
     fetchInvitations();
   }, [documentId]);
 
-  // Generate a secure random string for link tokens
   const generateSecureToken = () => {
     const array = new Uint8Array(16);
     window.crypto.getRandomValues(array);
@@ -107,7 +106,7 @@ export default function InvitationModal({ documentId, onClose }) {
   };
 
   const generateShareableLink = () => {
-    // Generate a token that will be used in the URL to identify the document and permission
+
     const token = generateSecureToken();
 
     const linkData = {
@@ -116,14 +115,12 @@ export default function InvitationModal({ documentId, onClose }) {
       created: new Date().toISOString(),
     };
 
-    // Store in localStorage
     const existingLinks = JSON.parse(
       localStorage.getItem("shareLinks") || "{}"
     );
     existingLinks[token] = linkData;
     localStorage.setItem("shareLinks", JSON.stringify(existingLinks));
 
-    // Create the shareable link with the token
     const baseUrl = window.location.origin;
     const shareableLink = `${baseUrl}/shared/${token}`;
 
@@ -143,7 +140,6 @@ export default function InvitationModal({ documentId, onClose }) {
       document.execCommand("copy");
       setLinkCopied(true);
 
-      // Reset copied state after 3 seconds
       setTimeout(() => {
         setLinkCopied(false);
       }, 3000);

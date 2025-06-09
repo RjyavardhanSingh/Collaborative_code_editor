@@ -34,7 +34,6 @@ export default function UserInvitations({ onClose }) {
       );
       setInvitations((prev) => prev.filter((inv) => inv._id !== invitationId));
 
-      // Navigate to the document
       navigate(`/documents/${data.documentId}`);
       onClose();
     } catch (err) {

@@ -149,11 +149,6 @@ export default function DocumentEditor() {
       yDocRef.current = new Y.Doc();
       const yText = yDocRef.current.getText("monaco");
 
-      // Only insert content if yText is empty
-      if (yText.toString() === "") {
-        yText.insert(0, doc.content || "");
-      }
-
       editor.updateOptions({
         readOnly: !hasWritePermission(),
       });
@@ -161,19 +156,9 @@ export default function DocumentEditor() {
       const token = localStorage.getItem("authToken");
       const wsUrl =
         import.meta.env.VITE_YWEBSOCKET_URL || "ws://localhost:1234";
+      console.log("Connecting to Y-WebSocket server:", wsUrl);
 
-      const userData = {
-        name: currentuser?.username || "Anonymous",
-        color: getRandomColor(currentuser?._id || "default"),
-        id: currentuser?._id ? String(currentuser._id) : "anonymous",
-      };
-
-      console.log("Connecting with user data:", userData);
-
-      if (providerRef.current) {
-        providerRef.current.disconnect();
-      }
-
+      // Create provider with better configuration
       providerRef.current = new WebsocketProvider(
         wsUrl,
         `document-${id}`,
@@ -181,44 +166,81 @@ export default function DocumentEditor() {
         {
           params: { token },
           connect: true,
+          maxBackoffTime: 1000,
+          disableBc: true, // Important: Disable broadcast channel
         }
       );
 
+      // Set cursor data with consistent format
+      const userData = {
+        name: currentuser?.username || "Anonymous",
+        color: getRandomColor(currentuser?._id || "default"),
+        id: currentuser?._id ? String(currentuser._id) : "anonymous",
+      };
+
+      // Get awareness reference
       const awareness = providerRef.current.awareness;
 
-      console.log("Provider connected:", providerRef.current.wsconnected);
-
+      // CRITICAL FIX: Set initial state BEFORE creating the binding
       awareness.setLocalState({
         user: userData,
         cursor: null,
       });
 
-      console.log("Current awareness state:", awareness.getLocalState());
-      console.log(
-        "All awareness states:",
-        Array.from(awareness.getStates().entries())
-      );
+      // Wait to ensure provider is connected before initializing content
+      providerRef.current.on("synced", ({ synced }) => {
+        console.log("Provider synced:", synced);
 
-      // Create Monaco binding with proper configuration
-      new MonacoBinding(
+        if (synced && yText.toString().length === 0 && doc.content) {
+          console.log("Initializing document content");
+          yText.insert(0, doc.content || "");
+        }
+      });
+
+      console.log("Creating MonacoBinding...");
+
+      // CRITICAL FIX: Create Monaco binding with correct parameters
+      const binding = new MonacoBinding(
         yText,
         editor.getModel(),
         new Set([editor]),
-        awareness,
-        {
-          // Optional: set cursor style
-          cursorStyle: "line",
-          // Enable awareness of remote cursors
-          awareness: true,
-        }
+        awareness
       );
 
+      console.log("MonacoBinding created successfully");
+
+      // Debug Y.js text changes
+      yText.observe((event) => {
+        const delta = event.delta;
+        console.log("Y.js text change:", delta);
+      });
+
+      // Map to store cursor decorations
       const remoteCursorDecorations = new Map();
 
+      // IMPORTANT: Lower throttling time and update awareness immediately after model changes
+      editor.onDidChangeModelContent(() => {
+        requestAnimationFrame(() => {
+          const position = editor.getPosition();
+          if (!position) return;
+
+          const model = editor.getModel();
+          if (!model) return;
+
+          const offset = model.getOffsetAt(position);
+          awareness.setLocalStateField("cursor", {
+            index: offset,
+            head: offset,
+            anchor: offset,
+          });
+        });
+      });
+
+      // FIX: Use more responsive cursor tracking
       let lastCursorUpdateTime = 0;
       editor.onDidChangeCursorPosition((e) => {
-        const now = Date.now();
-        if (now - lastCursorUpdateTime < 50) return;
+        const now = performance.now();
+        if (now - lastCursorUpdateTime < 10) return; // Only 10ms throttle
         lastCursorUpdateTime = now;
 
         const model = editor.getModel();
@@ -234,12 +256,10 @@ export default function DocumentEditor() {
         });
       });
 
+      // FIX: Better awareness change handling
       awareness.on("change", () => {
         const model = editor.getModel();
         if (!model) return;
-
-        console.log("Awareness change detected!");
-        console.log("All states:", Array.from(awareness.getStates().entries()));
 
         // Clear previous decorations
         editor.deltaDecorations(
@@ -248,23 +268,18 @@ export default function DocumentEditor() {
         );
         remoteCursorDecorations.clear();
 
-        // Add decorations for each remote user
+        // Process all remote states
         awareness.getStates().forEach((state, clientId) => {
           if (clientId !== awareness.clientID && state.user && state.cursor) {
-            console.log(
-              `Rendering cursor for user: ${state.user.name} at position: ${state.cursor.index}`
-            );
-
-            // Ensure style is added
-            addRemoteCursorStyle(clientId, state.user.color);
-
             try {
+              addRemoteCursorStyle(clientId, state.user.color);
+
               const position = model.getPositionAt(state.cursor.index);
 
-              // Create more visible decorations with z-index
+              // CRITICAL FIX: Use NeverGrowsWhenTypingAtEdges for stability
               const decorations = [];
 
-              // Cursor line
+              // Main cursor line
               decorations.push({
                 range: new monaco.Range(
                   position.lineNumber,
@@ -282,7 +297,7 @@ export default function DocumentEditor() {
                 },
               });
 
-              // Flag with username
+              // Username flag
               decorations.push({
                 range: new monaco.Range(
                   position.lineNumber,
@@ -297,17 +312,13 @@ export default function DocumentEditor() {
                   stickiness:
                     monaco.editor.TrackedRangeStickiness
                       .NeverGrowsWhenTypingAtEdges,
-                  zIndex: 1000,
+                  zIndex: 100,
                 },
               });
 
-              // Apply decorations and store IDs
+              // Apply decorations to editor
               const ids = editor.deltaDecorations([], decorations);
               remoteCursorDecorations.set(clientId, ids);
-
-              console.log(
-                `Applied cursor decoration for ${state.user.name} at line ${position.lineNumber}, column ${position.column}`
-              );
             } catch (err) {
               console.error("Error rendering remote cursor:", err);
             }
@@ -581,42 +592,50 @@ export default function DocumentEditor() {
   const addRemoteCursorStyle = (clientId, color) => {
     const styleId = `remote-cursor-${clientId}-style`;
 
+    // Remove existing style if it exists
     const existingStyle = document.getElementById(styleId);
     if (existingStyle) {
       existingStyle.parentNode.removeChild(existingStyle);
     }
 
+    // Create new style with more prominent appearance
     const style = document.createElement("style");
     style.id = styleId;
     style.innerHTML = `
       .remote-cursor-${clientId} {
-        position: relative;
+        position: absolute !important;
         border-left: 4px solid ${color} !important;
-        z-index: 100 !important;
+        height: 100% !important;
+        z-index: 1000 !important;
+        pointer-events: none !important;
       }
+      
       .remote-cursor-${clientId}-before {
-        position: absolute;
+        position: absolute !important;
         border-left: 4px solid ${color} !important;
-        height: 100%;
-        z-index: 100 !important;
+        height: 100% !important;
+        z-index: 1000 !important;
+        pointer-events: none !important;
       }
+      
       .remote-cursor-${clientId}-flag {
-        position: absolute;
-        left: -2px;
-        top: -20px;
-        font-size: 12px;
-        padding: 2px 6px;
-        line-height: 16px;
+        position: absolute !important;
+        left: -2px !important;
+        top: -20px !important;
         background-color: ${color} !important;
         color: white !important;
+        font-size: 12px !important;
+        font-weight: bold !important;
+        padding: 2px 6px !important;
+        line-height: 16px !important;
+        white-space: nowrap !important;
         z-index: 1000 !important;
-        white-space: nowrap;
-        border-radius: 3px;
-        font-weight: bold;
-        pointer-events: none;
-        box-shadow: 0 2px 4px rgba(0,0,0,0.5) !important;
+        border-radius: 3px !important;
+        pointer-events: none !important;
+        box-shadow: 0 1px 3px rgba(0,0,0,0.5) !important;
       }
     `;
+
     document.head.appendChild(style);
   };
 
