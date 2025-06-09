@@ -26,6 +26,52 @@ import logo from "../../assets/newlogo.png";
 import InvitationModal from "../../components/collaboration/InvitationModal";
 import CollaboratorManagement from "../../components/collaboration/CollaboratorManagement";
 
+const addRemoteCursorStyle = (clientId, color) => {
+  const styleId = `remote-cursor-${clientId}-style`;
+
+  const existingStyle = document.getElementById(styleId);
+  if (existingStyle) {
+    existingStyle.parentNode.removeChild(existingStyle);
+  }
+
+  const style = document.createElement("style");
+  style.id = styleId;
+  style.innerHTML = `
+    .remote-cursor-${clientId} {
+      position: relative;
+      border-left: 3px solid ${color} !important;
+      background-color: ${color}20 !important;
+    }
+    
+    .remote-cursor-${clientId}-before {
+      position: absolute !important;
+      border-left: 3px solid ${color} !important;
+      height: 100% !important;
+      box-shadow: 0 0 5px ${color} !important;
+    }
+    
+    .remote-cursor-${clientId}-flag {
+      position: absolute !important;
+      left: -2px !important;
+      top: -18px !important;
+      background-color: ${color} !important;
+      color: white !important;
+      font-size: 12px !important;
+      font-weight: bold !important;
+      padding: 1px 4px !important;
+      line-height: 16px !important;
+      white-space: nowrap !important;
+      z-index: 9999 !important;
+      border-radius: 3px !important;
+      user-select: none !important;
+      pointer-events: none !important;
+      box-shadow: 0 2px 4px rgba(0,0,0,0.5) !important;
+    }
+  `;
+
+  document.head.appendChild(style);
+};
+
 export default function DocumentEditor() {
   const { id } = useParams();
   const navigate = useNavigate();
@@ -35,6 +81,9 @@ export default function DocumentEditor() {
   const yDocRef = useRef(null);
   const providerRef = useRef(null);
   const messageContainerRef = useRef(null);
+  const bindingRef = useRef(null);
+  const lastContentRef = useRef("");
+  const isLocalChangeRef = useRef(false);
 
   const [doc, setDoc] = useState(null);
   const [loading, setLoading] = useState(true);
@@ -53,8 +102,8 @@ export default function DocumentEditor() {
   const [activeUsers, setActiveUsers] = useState([]);
   const [lastSaved, setLastSaved] = useState(null);
   const [isInvitationModalOpen, setIsInvitationModalOpen] = useState(false);
-
   const [unreadMessageCount, setUnreadMessageCount] = useState(0);
+  const [connectedUsers, setConnectedUsers] = useState(new Map());
 
   useEffect(() => {
     const fetchDocument = async () => {
@@ -98,11 +147,17 @@ export default function DocumentEditor() {
     }
 
     return () => {
+      if (bindingRef.current) {
+        bindingRef.current.destroy();
+      }
       if (providerRef.current) {
         providerRef.current.disconnect();
       }
       if (socketRef.current) {
         socketRef.current.disconnect();
+      }
+      if (yDocRef.current) {
+        yDocRef.current.destroy();
       }
     };
   }, [id]);
@@ -144,8 +199,22 @@ export default function DocumentEditor() {
 
     if (!doc) return;
 
+    console.log("Initializing collaborative editor...");
+
     try {
-      // Initialize Y.js document
+      if (bindingRef.current) {
+        bindingRef.current.destroy();
+        bindingRef.current = null;
+      }
+      if (providerRef.current) {
+        providerRef.current.disconnect();
+        providerRef.current = null;
+      }
+      if (yDocRef.current) {
+        yDocRef.current.destroy();
+        yDocRef.current = null;
+      }
+
       yDocRef.current = new Y.Doc();
       const yText = yDocRef.current.getText("monaco");
 
@@ -156,9 +225,17 @@ export default function DocumentEditor() {
       const token = localStorage.getItem("authToken");
       const wsUrl =
         import.meta.env.VITE_YWEBSOCKET_URL || "ws://localhost:1234";
+
       console.log("Connecting to Y-WebSocket server:", wsUrl);
 
-      // Create provider with better configuration
+      const userData = {
+        name: currentuser?.username || "Anonymous",
+        color: getRandomColor(currentuser?._id || "default"),
+        id: currentuser?._id ? String(currentuser._id) : "anonymous",
+      };
+
+      console.log("User data:", userData);
+
       providerRef.current = new WebsocketProvider(
         wsUrl,
         `document-${id}`,
@@ -166,81 +243,116 @@ export default function DocumentEditor() {
         {
           params: { token },
           connect: true,
-          maxBackoffTime: 1000,
-          disableBc: true, // Important: Disable broadcast channel
+          maxBackoffTime: 2500,
+          disableBc: true,
         }
       );
 
-      // Set cursor data with consistent format
-      const userData = {
-        name: currentuser?.username || "Anonymous",
-        color: getRandomColor(currentuser?._id || "default"),
-        id: currentuser?._id ? String(currentuser._id) : "anonymous",
-      };
+      let initialContentSet = false;
 
-      // Get awareness reference
+      providerRef.current.on("status", ({ status }) => {
+        console.log("Provider status:", status);
+
+        if (status === "connected" && !initialContentSet) {
+          setTimeout(() => {
+            if (yText.length === 0 && doc.content) {
+              console.log(
+                "Setting initial content:",
+                doc.content.length,
+                "characters"
+              );
+              yText.insert(0, doc.content);
+              initialContentSet = true;
+            }
+          }, 100);
+        }
+      });
+
+      providerRef.current.on("synced", ({ synced }) => {
+        console.log("Provider synced:", synced);
+        if (synced && !initialContentSet && yText.length === 0 && doc.content) {
+          console.log("Setting content after sync");
+          yText.insert(0, doc.content);
+          initialContentSet = true;
+        }
+      });
+
       const awareness = providerRef.current.awareness;
 
-      // CRITICAL FIX: Set initial state BEFORE creating the binding
       awareness.setLocalState({
         user: userData,
         cursor: null,
       });
 
-      // Wait to ensure provider is connected before initializing content
-      providerRef.current.on("synced", ({ synced }) => {
-        console.log("Provider synced:", synced);
-
-        if (synced && yText.toString().length === 0 && doc.content) {
-          console.log("Initializing document content");
-          yText.insert(0, doc.content || "");
-        }
-      });
-
-      console.log("Creating MonacoBinding...");
-
-      // CRITICAL FIX: Create Monaco binding with correct parameters
-      const binding = new MonacoBinding(
+      bindingRef.current = new MonacoBinding(
         yText,
         editor.getModel(),
         new Set([editor]),
         awareness
       );
 
-      console.log("MonacoBinding created successfully");
+      console.log("Monaco binding created");
 
-      // Debug Y.js text changes
-      yText.observe((event) => {
-        const delta = event.delta;
-        console.log("Y.js text change:", delta);
-      });
-
-      // Map to store cursor decorations
       const remoteCursorDecorations = new Map();
 
-      // IMPORTANT: Lower throttling time and update awareness immediately after model changes
-      editor.onDidChangeModelContent(() => {
-        requestAnimationFrame(() => {
-          const position = editor.getPosition();
-          if (!position) return;
+      yText.observe((event) => {
+        console.log("Y.js text changed:", event);
 
-          const model = editor.getModel();
-          if (!model) return;
+        if (!isLocalChangeRef.current) {
+          const newContent = yText.toString();
+          const editorContent = editor.getValue();
 
-          const offset = model.getOffsetAt(position);
-          awareness.setLocalStateField("cursor", {
-            index: offset,
-            head: offset,
-            anchor: offset,
-          });
-        });
+          if (newContent !== editorContent) {
+            console.log("Applying remote text change");
+            const position = editor.getPosition();
+            const selections = editor.getSelections();
+
+            editor.setValue(newContent);
+
+            if (position) {
+              try {
+                editor.setPosition(position);
+              } catch (e) {
+                console.warn("Could not restore cursor position");
+              }
+            }
+
+            if (selections) {
+              try {
+                editor.setSelections(selections);
+              } catch (e) {
+                console.warn("Could not restore selections");
+              }
+            }
+          }
+        }
+
+        isLocalChangeRef.current = false;
       });
 
-      // FIX: Use more responsive cursor tracking
+      editor.onDidChangeModelContent((event) => {
+        isLocalChangeRef.current = true;
+
+        setTimeout(() => {
+          const position = editor.getPosition();
+          if (position) {
+            const model = editor.getModel();
+            if (model) {
+              const offset = model.getOffsetAt(position);
+              awareness.setLocalStateField("cursor", {
+                index: offset,
+                head: offset,
+                anchor: offset,
+              });
+            }
+          }
+        }, 0);
+      });
+
       let lastCursorUpdateTime = 0;
       editor.onDidChangeCursorPosition((e) => {
-        const now = performance.now();
-        if (now - lastCursorUpdateTime < 10) return; // Only 10ms throttle
+        const now = Date.now();
+        if (now - lastCursorUpdateTime < 50) return;
         lastCursorUpdateTime = now;
 
         const model = editor.getModel();
@@ -256,36 +368,41 @@ export default function DocumentEditor() {
         });
       });
 
-      // FIX: Better awareness change handling
-      awareness.on("change", () => {
+      awareness.on("change", ({ added, updated, removed }) => {
+        console.log("Awareness changed");
+
         const model = editor.getModel();
         if (!model) return;
 
-        // Clear previous decorations
-        editor.deltaDecorations(
-          Array.from(remoteCursorDecorations.values()).flat(),
-          []
-        );
+        const oldDecorations = Array.from(
+          remoteCursorDecorations.values()
+        ).flat();
+        if (oldDecorations.length > 0) {
+          editor.deltaDecorations(oldDecorations, []);
+        }
         remoteCursorDecorations.clear();
 
-        // Process all remote states
-        awareness.getStates().forEach((state, clientId) => {
+        const states = awareness.getStates();
+
+        states.forEach((state, clientId) => {
           if (clientId !== awareness.clientID && state.user && state.cursor) {
+            console.log(
+              `Remote cursor from ${state.user.name} at position ${state.cursor.index}`
+            );
+
             try {
               addRemoteCursorStyle(clientId, state.user.color);
 
               const position = model.getPositionAt(state.cursor.index);
 
-              // CRITICAL FIX: Use NeverGrowsWhenTypingAtEdges for stability
               const decorations = [];
 
-              // Main cursor line
               decorations.push({
                 range: new monaco.Range(
                   position.lineNumber,
                   position.column,
                   position.lineNumber,
-                  position.column + 1
+                  position.column
                 ),
                 options: {
                   className: `remote-cursor-${clientId}`,
@@ -293,11 +410,9 @@ export default function DocumentEditor() {
                   stickiness:
                     monaco.editor.TrackedRangeStickiness
                       .NeverGrowsWhenTypingAtEdges,
-                  zIndex: 100,
                 },
               });
 
-              // Username flag
               decorations.push({
                 range: new monaco.Range(
                   position.lineNumber,
@@ -312,11 +427,9 @@ export default function DocumentEditor() {
                   stickiness:
                     monaco.editor.TrackedRangeStickiness
                       .NeverGrowsWhenTypingAtEdges,
-                  zIndex: 100,
                 },
               });
 
-              // Apply decorations to editor
               const ids = editor.deltaDecorations([], decorations);
               remoteCursorDecorations.set(clientId, ids);
             } catch (err) {
@@ -324,9 +437,19 @@ export default function DocumentEditor() {
             }
           }
         });
+
+        const users = Array.from(states.entries())
+          .filter(([clientId, state]) => state.user)
+          .map(([clientId, state]) => ({
+            id: clientId,
+            name: state.user.name,
+            color: state.user.color,
+          }));
+
+        setConnectedUsers(new Map(users.map((user) => [user.id, user])));
       });
 
-      console.log("Y.js collaborative editing initialized successfully");
+      console.log("Collaborative editing initialized successfully");
     } catch (err) {
       console.error("Failed to initialize collaborative editing:", err);
     }
@@ -589,56 +712,6 @@ export default function DocumentEditor() {
     );
   }
 
-  const addRemoteCursorStyle = (clientId, color) => {
-    const styleId = `remote-cursor-${clientId}-style`;
-
-    // Remove existing style if it exists
-    const existingStyle = document.getElementById(styleId);
-    if (existingStyle) {
-      existingStyle.parentNode.removeChild(existingStyle);
-    }
-
-    // Create new style with more prominent appearance
-    const style = document.createElement("style");
-    style.id = styleId;
-    style.innerHTML = `
-      .remote-cursor-${clientId} {
-        position: absolute !important;
-        border-left: 4px solid ${color} !important;
-        height: 100% !important;
-        z-index: 1000 !important;
-        pointer-events: none !important;
-      }
-      
-      .remote-cursor-${clientId}-before {
-        position: absolute !important;
-        border-left: 4px solid ${color} !important;
-        height: 100% !important;
-        z-index: 1000 !important;
-        pointer-events: none !important;
-      }
-      
-      .remote-cursor-${clientId}-flag {
-        position: absolute !important;
-        left: -2px !important;
-        top: -20px !important;
-        background-color: ${color} !important;
-        color: white !important;
-        font-size: 12px !important;
-        font-weight: bold !important;
-        padding: 2px 6px !important;
-        line-height: 16px !important;
-        white-space: nowrap !important;
-        z-index: 1000 !important;
-        border-radius: 3px !important;
-        pointer-events: none !important;
-        box-shadow: 0 1px 3px rgba(0,0,0,0.5) !important;
-      }
-    `;
-
-    document.head.appendChild(style);
-  };
-
   return (
     <div className="min-h-screen bg-slate-900 flex flex-col">
       <Navbar
@@ -654,8 +727,9 @@ export default function DocumentEditor() {
 
             <select
               value={language}
+              onChange={(e) => handleLanguageChange(e.target.value)}
               className="ml-4 bg-slate-700 text-white text-sm rounded px-2 py-1 border border-slate-600"
-              disabled={true}
+              disabled={!hasWritePermission()}
             >
               <option value="javascript">JavaScript</option>
               <option value="typescript">TypeScript</option>
@@ -808,12 +882,13 @@ export default function DocumentEditor() {
             }}
           />
         </div>
+
         {isCollaboratorsOpen && (
           <CollaboratorManagement
             documentId={id}
             collaborators={collaborators}
             setCollaborators={setCollaborators}
-            activeUsers={activeUsers}
+            activeUsers={Array.from(connectedUsers.values())}
             currentuser={currentuser}
             onClose={() => setIsCollaboratorsOpen(false)}
             onInviteClick={handleShareDocument}
