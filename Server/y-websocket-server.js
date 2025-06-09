@@ -14,7 +14,6 @@ dotenv.config();
 const PORT = process.env.YWEBSOCKET_PORT || 1234;
 const HOST = process.env.HOST || "localhost";
 
-// Store documents and their connections
 const docs = new Map();
 
 const getYDoc = (docName) => {
@@ -45,7 +44,6 @@ wss.on("connection", (conn, req) => {
 
   console.log(`New connection for document: ${docName}`);
 
-  // Basic authentication
   try {
     if (token && process.env.JWT_SECRET) {
       jwt.verify(token, process.env.JWT_SECRET);
@@ -60,7 +58,6 @@ wss.on("connection", (conn, req) => {
 
   const { doc, awareness, connections } = getYDoc(docName);
 
-  // Add connection to document
   connections.add(conn);
   conn.docName = docName;
 
@@ -126,7 +123,6 @@ wss.on("connection", (conn, req) => {
     }
   });
 
-  // Handle connection close
   conn.on("close", () => {
     console.log(`Connection closed for document: ${docName}`);
     connections.delete(conn);
