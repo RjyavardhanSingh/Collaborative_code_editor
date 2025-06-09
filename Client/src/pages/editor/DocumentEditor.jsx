@@ -82,8 +82,8 @@ export default function DocumentEditor() {
   const providerRef = useRef(null);
   const messageContainerRef = useRef(null);
   const bindingRef = useRef(null);
-  const lastContentRef = useRef("");
-  const isLocalChangeRef = useRef(false);
+  const isInitializedRef = useRef(false);
+  const syncTimeoutRef = useRef(null);
 
   const [doc, setDoc] = useState(null);
   const [loading, setLoading] = useState(true);
@@ -147,6 +147,9 @@ export default function DocumentEditor() {
     }
 
     return () => {
+      if (syncTimeoutRef.current) {
+        clearTimeout(syncTimeoutRef.current);
+      }
       if (bindingRef.current) {
         bindingRef.current.destroy();
       }
@@ -197,7 +200,7 @@ export default function DocumentEditor() {
   const handleEditorDidMount = (editor, monaco) => {
     editorRef.current = editor;
 
-    if (!doc) return;
+    if (!doc || isInitializedRef.current) return;
 
     console.log("Initializing collaborative editor...");
 
@@ -244,36 +247,46 @@ export default function DocumentEditor() {
           params: { token },
           connect: true,
           maxBackoffTime: 2500,
-          disableBc: true,
         }
       );
 
-      let initialContentSet = false;
+      let hasInitialContentSet = false;
 
       providerRef.current.on("status", ({ status }) => {
         console.log("Provider status:", status);
-
-        if (status === "connected" && !initialContentSet) {
-          setTimeout(() => {
-            if (yText.length === 0 && doc.content) {
-              console.log(
-                "Setting initial content:",
-                doc.content.length,
-                "characters"
-              );
-              yText.insert(0, doc.content);
-              initialContentSet = true;
-            }
-          }, 100);
-        }
       });
 
       providerRef.current.on("synced", ({ synced }) => {
         console.log("Provider synced:", synced);
-        if (synced && !initialContentSet && yText.length === 0 && doc.content) {
-          console.log("Setting content after sync");
-          yText.insert(0, doc.content);
-          initialContentSet = true;
+        if (synced && !hasInitialContentSet) {
+          syncTimeoutRef.current = setTimeout(() => {
+            const currentYTextContent = yText.toString();
+            console.log(
+              "Y.js content after sync:",
+              currentYTextContent.length,
+              "characters"
+            );
+            console.log(
+              "Database content:",
+              doc.content?.length || 0,
+              "characters"
+            );
+
+            if (currentYTextContent.length === 0 && doc.content) {
+              console.log("Setting initial content from database");
+              yText.insert(0, doc.content);
+            } else if (
+              currentYTextContent.length > 0 &&
+              currentYTextContent !== editor.getValue()
+            ) {
+              console.log("Using existing collaborative content");
+              const currentEditorContent = editor.getValue();
+              if (currentEditorContent !== currentYTextContent) {
+                editor.setValue(currentYTextContent);
+              }
+            }
+            hasInitialContentSet = true;
+          }, 200);
         }
       });
 
@@ -295,44 +308,14 @@ export default function DocumentEditor() {
 
       const remoteCursorDecorations = new Map();
 
-      yText.observe((event) => {
-        console.log("Y.js text changed:", event);
-
-        if (!isLocalChangeRef.current) {
-          const newContent = yText.toString();
-          const editorContent = editor.getValue();
-
-          if (newContent !== editorContent) {
-            console.log("Applying remote text change");
-            const position = editor.getPosition();
-            const selections = editor.getSelections();
-
-            editor.setValue(newContent);
-
-            if (position) {
-              try {
-                editor.setPosition(position);
-              } catch (e) {
-                console.warn("Could not restore cursor position");
-              }
-            }
-
-            if (selections) {
-              try {
-                editor.setSelections(selections);
-              } catch (e) {
-                console.warn("Could not restore selections");
-              }
-            }
-          }
+      yText.observe((event, transaction) => {
+        console.log("Y.js text changed, origin:", transaction.origin);
+        if (transaction.origin !== yDocRef.current.clientID) {
+          console.log("Remote change detected");
         }
-
-        isLocalChangeRef.current = false;
       });
 
       editor.onDidChangeModelContent((event) => {
-        isLocalChangeRef.current = true;
-
         setTimeout(() => {
           const position = editor.getPosition();
           if (position) {
@@ -449,6 +432,7 @@ export default function DocumentEditor() {
         setConnectedUsers(new Map(users.map((user) => [user.id, user])));
       });
 
+      isInitializedRef.current = true;
       console.log("Collaborative editing initialized successfully");
     } catch (err) {
       console.error("Failed to initialize collaborative editing:", err);

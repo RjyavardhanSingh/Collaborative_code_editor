@@ -61,39 +61,47 @@ wss.on("connection", (conn, req) => {
   connections.add(conn);
   conn.docName = docName;
 
-  const sendMessage = (encoder) => {
-    if (encoding.length(encoder) > 1) {
-      conn.send(encoding.toUint8Array(encoder));
-    }
+  const broadcastMessage = (message, excludeConn = null) => {
+    connections.forEach((c) => {
+      if (c !== excludeConn && c.readyState === 1) {
+        try {
+          c.send(message);
+        } catch (err) {
+          console.error("Error broadcasting message:", err);
+          connections.delete(c);
+        }
+      }
+    });
   };
 
-  const messageListener = (encoder, decoder, emitSynced, messageType) => {
-    if (encoding.length(encoder) > 1) {
-      conn.send(encoding.toUint8Array(encoder));
-    }
-  };
-
-  doc.on("update", (update, origin) => {
+  const updateHandler = (update, origin) => {
     if (origin !== conn) {
       const encoder = encoding.createEncoder();
       encoding.writeVarUint(encoder, 0);
       syncProtocol.writeUpdate(encoder, update);
-      sendMessage(encoder);
+      const message = encoding.toUint8Array(encoder);
+      broadcastMessage(message, origin);
     }
-  });
+  };
 
-  awareness.on("update", ({ added, updated, removed }, origin) => {
+  const awarenessUpdateHandler = ({ added, updated, removed }, origin) => {
     if (origin !== conn) {
       const changedClients = added.concat(updated).concat(removed);
-      const encoder = encoding.createEncoder();
-      encoding.writeVarUint(encoder, 1);
-      encoding.writeVarUint8Array(
-        encoder,
-        awarenessProtocol.encodeAwarenessUpdate(awareness, changedClients)
-      );
-      sendMessage(encoder);
+      if (changedClients.length > 0) {
+        const encoder = encoding.createEncoder();
+        encoding.writeVarUint(encoder, 1);
+        encoding.writeVarUint8Array(
+          encoder,
+          awarenessProtocol.encodeAwarenessUpdate(awareness, changedClients)
+        );
+        const message = encoding.toUint8Array(encoder);
+        broadcastMessage(message, origin);
+      }
     }
-  });
+  };
+
+  doc.on("update", updateHandler);
+  awareness.on("update", awarenessUpdateHandler);
 
   conn.on("message", (message) => {
     try {
@@ -126,17 +134,22 @@ wss.on("connection", (conn, req) => {
   conn.on("close", () => {
     console.log(`Connection closed for document: ${docName}`);
     connections.delete(conn);
+    doc.off("update", updateHandler);
+    awareness.off("update", awarenessUpdateHandler);
     awarenessProtocol.removeAwarenessStates(awareness, [conn], null);
   });
 
   conn.on("error", (error) => {
     console.error("WebSocket error:", error);
+    connections.delete(conn);
   });
 
   const encoder = encoding.createEncoder();
   encoding.writeVarUint(encoder, 0);
   syncProtocol.writeSyncStep1(encoder, doc);
-  sendMessage(encoder);
+  if (encoding.length(encoder) > 1) {
+    conn.send(encoding.toUint8Array(encoder));
+  }
 
   if (awareness.getStates().size > 0) {
     const encoder = encoding.createEncoder();
@@ -148,10 +161,14 @@ wss.on("connection", (conn, req) => {
         Array.from(awareness.getStates().keys())
       )
     );
-    sendMessage(encoder);
+    if (encoding.length(encoder) > 1) {
+      conn.send(encoding.toUint8Array(encoder));
+    }
   }
 
-  console.log(`Client connected to document: ${docName}`);
+  console.log(
+    `Client connected to document: ${docName}, total connections: ${connections.size}`
+  );
 });
 
 server.listen(PORT, HOST, () => {
