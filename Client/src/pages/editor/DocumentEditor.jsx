@@ -22,7 +22,6 @@ import {
   FiMinimize,
   FiX,
 } from "react-icons/fi";
-import logo from "../../assets/newlogo.png";
 import InvitationModal from "../../components/collaboration/InvitationModal";
 import CollaboratorManagement from "../../components/collaboration/CollaboratorManagement";
 
@@ -82,8 +81,9 @@ export default function DocumentEditor() {
   const providerRef = useRef(null);
   const messageContainerRef = useRef(null);
   const bindingRef = useRef(null);
-  const isInitializedRef = useRef(false);
-  const syncTimeoutRef = useRef(null);
+  const isCollaborativeInitialized = useRef(false);
+  const persistedContentRef = useRef(null);
+  const syncCompleted = useRef(false);
 
   const [doc, setDoc] = useState(null);
   const [loading, setLoading] = useState(true);
@@ -111,6 +111,7 @@ export default function DocumentEditor() {
         setLoading(true);
         const { data } = await api.get(`/api/documents/${id}`);
         setDoc(data);
+        persistedContentRef.current = data.content || "";
 
         const fileExtension = data.title.split(".").pop().toLowerCase();
         const detectedLanguage = getLanguageFromExtension(fileExtension);
@@ -147,9 +148,6 @@ export default function DocumentEditor() {
     }
 
     return () => {
-      if (syncTimeoutRef.current) {
-        clearTimeout(syncTimeoutRef.current);
-      }
       if (bindingRef.current) {
         bindingRef.current.destroy();
       }
@@ -166,8 +164,7 @@ export default function DocumentEditor() {
   }, [id]);
 
   useEffect(() => {
-    const socketUrl =
-      import.meta.env.VITE_SOCKET_URL || "http://localhost:5000";
+    const socketUrl = import.meta.env.VITE_SOCKET_URL || "http://localhost:5000";
     socketRef.current = io(socketUrl, {
       withCredentials: true,
       query: { documentId: id },
@@ -178,7 +175,6 @@ export default function DocumentEditor() {
 
     socketRef.current.on("new-message", (message) => {
       setMessages((prevMessages) => [...prevMessages, message]);
-
       if (!isChatOpen) {
         setUnreadMessageCount((prev) => prev + 1);
       }
@@ -197,39 +193,16 @@ export default function DocumentEditor() {
     };
   }, [id, isChatOpen]);
 
-  const handleEditorDidMount = (editor, monaco) => {
-    editorRef.current = editor;
+  const initializeCollaborativeEditor = async (editor) => {
+    if (isCollaborativeInitialized.current || !doc) return;
 
-    if (!doc || isInitializedRef.current) return;
-
-    console.log("Initializing collaborative editor...");
+    console.log("Initializing Y.js collaborative editor...");
 
     try {
-      if (bindingRef.current) {
-        bindingRef.current.destroy();
-        bindingRef.current = null;
-      }
-      if (providerRef.current) {
-        providerRef.current.disconnect();
-        providerRef.current = null;
-      }
-      if (yDocRef.current) {
-        yDocRef.current.destroy();
-        yDocRef.current = null;
-      }
-
       yDocRef.current = new Y.Doc();
       const yText = yDocRef.current.getText("monaco");
 
-      editor.updateOptions({
-        readOnly: !hasWritePermission(),
-      });
-
-      const token = localStorage.getItem("authToken");
-      const wsUrl =
-        import.meta.env.VITE_YWEBSOCKET_URL || "ws://localhost:1234";
-
-      console.log("Connecting to Y-WebSocket server:", wsUrl);
+      const wsUrl = import.meta.env.VITE_YWEBSOCKET_URL || "ws://localhost:1234";
 
       const userData = {
         name: currentuser?.username || "Anonymous",
@@ -237,65 +210,57 @@ export default function DocumentEditor() {
         id: currentuser?._id ? String(currentuser._id) : "anonymous",
       };
 
-      console.log("User data:", userData);
-
       providerRef.current = new WebsocketProvider(
         wsUrl,
         `document-${id}`,
-        yDocRef.current,
-        {
-          params: { token },
-          connect: true,
-          maxBackoffTime: 2500,
-        }
+        yDocRef.current
       );
 
-      let hasInitialContentSet = false;
+      let initialized = false;
 
-      providerRef.current.on("status", ({ status }) => {
-        console.log("Provider status:", status);
-      });
+      const handleSynced = (isSynced) => {
+        if (!isSynced || initialized) return;
+        initialized = true;
 
-      providerRef.current.on("synced", ({ synced }) => {
-        console.log("Provider synced:", synced);
-        if (synced && !hasInitialContentSet) {
-          syncTimeoutRef.current = setTimeout(() => {
-            const currentYTextContent = yText.toString();
-            console.log(
-              "Y.js content after sync:",
-              currentYTextContent.length,
-              "characters"
-            );
-            console.log(
-              "Database content:",
-              doc.content?.length || 0,
-              "characters"
-            );
+        console.log("Y.js provider synced");
 
-            if (currentYTextContent.length === 0 && doc.content) {
-              console.log("Setting initial content from database");
-              yText.insert(0, doc.content);
-            } else if (
-              currentYTextContent.length > 0 &&
-              currentYTextContent !== editor.getValue()
-            ) {
-              console.log("Using existing collaborative content");
-              const currentEditorContent = editor.getValue();
-              if (currentEditorContent !== currentYTextContent) {
-                editor.setValue(currentYTextContent);
-              }
-            }
-            hasInitialContentSet = true;
-          }, 200);
+        const currentYContent = yText.toString();
+        const persistedContent = persistedContentRef.current || "";
+
+        if (currentYContent.length === 0 && persistedContent.length > 0) {
+          console.log("Setting initial content from database");
+          yText.insert(0, persistedContent);
+        } else if (currentYContent.length > 0) {
+          console.log("Using existing Y.js content");
+          if (editor.getValue() !== currentYContent) {
+            editor.setValue(currentYContent);
+          }
         }
-      });
+
+        syncCompleted.current = true;
+      };
+
+      providerRef.current.on("synced", handleSynced);
+
+      setTimeout(() => {
+        if (!initialized) {
+          console.warn("Y.js sync timeout - proceeding with persisted content");
+          initialized = true;
+          
+          const persistedContent = persistedContentRef.current || "";
+          if (persistedContent && editor.getValue() !== persistedContent) {
+            editor.setValue(persistedContent);
+          }
+          syncCompleted.current = true;
+        }
+      }, 3000);
+
+      while (!syncCompleted.current) {
+        await new Promise(resolve => setTimeout(resolve, 100));
+      }
 
       const awareness = providerRef.current.awareness;
-
-      awareness.setLocalState({
-        user: userData,
-        cursor: null,
-      });
+      awareness.setLocalState({ user: userData, cursor: null });
 
       bindingRef.current = new MonacoBinding(
         yText,
@@ -304,62 +269,60 @@ export default function DocumentEditor() {
         awareness
       );
 
-      console.log("Monaco binding created");
+      setupCursorTracking(editor, awareness);
+      setupRemoteCursors(editor, awareness);
 
-      const remoteCursorDecorations = new Map();
+      isCollaborativeInitialized.current = true;
+      console.log("Collaborative editor initialized successfully");
 
-      yText.observe((event, transaction) => {
-        console.log("Y.js text changed, origin:", transaction.origin);
-        if (transaction.origin !== yDocRef.current.clientID) {
-          console.log("Remote change detected");
-        }
-      });
+    } catch (err) {
+      console.error("Failed to initialize collaborative editor:", err);
+      
+      if (persistedContentRef.current && editor.getValue() !== persistedContentRef.current) {
+        editor.setValue(persistedContentRef.current);
+      }
+    }
+  };
 
-      editor.onDidChangeModelContent((event) => {
-        setTimeout(() => {
-          const position = editor.getPosition();
-          if (position) {
-            const model = editor.getModel();
-            if (model) {
-              const offset = model.getOffsetAt(position);
-              awareness.setLocalStateField("cursor", {
-                index: offset,
-                head: offset,
-                anchor: offset,
-              });
-            }
-          }
-        }, 0);
-      });
+  const setupCursorTracking = (editor, awareness) => {
+    let lastCursorUpdate = 0;
 
-      let lastCursorUpdateTime = 0;
-      editor.onDidChangeCursorPosition((e) => {
+    const updateCursor = () => {
+      try {
         const now = Date.now();
-        if (now - lastCursorUpdateTime < 50) return;
-        lastCursorUpdateTime = now;
+        if (now - lastCursorUpdate < 100) return;
+        lastCursorUpdate = now;
 
+        const position = editor.getPosition();
+        if (position) {
+          const model = editor.getModel();
+          if (model) {
+            const offset = model.getOffsetAt(position);
+            awareness.setLocalStateField("cursor", {
+              index: offset,
+              head: offset,
+              anchor: offset,
+            });
+          }
+        }
+      } catch (error) {
+        console.error("Error updating cursor:", error);
+      }
+    };
+
+    editor.onDidChangeModelContent(updateCursor);
+    editor.onDidChangeCursorPosition(updateCursor);
+  };
+
+  const setupRemoteCursors = (editor, awareness) => {
+    const remoteCursorDecorations = new Map();
+
+    awareness.on("change", ({ added, updated, removed }) => {
+      try {
         const model = editor.getModel();
         if (!model) return;
 
-        const position = e.position;
-        const offset = model.getOffsetAt(position);
-
-        awareness.setLocalStateField("cursor", {
-          index: offset,
-          head: offset,
-          anchor: offset,
-        });
-      });
-
-      awareness.on("change", ({ added, updated, removed }) => {
-        console.log("Awareness changed");
-
-        const model = editor.getModel();
-        if (!model) return;
-
-        const oldDecorations = Array.from(
-          remoteCursorDecorations.values()
-        ).flat();
+        const oldDecorations = Array.from(remoteCursorDecorations.values()).flat();
         if (oldDecorations.length > 0) {
           editor.deltaDecorations(oldDecorations, []);
         }
@@ -369,49 +332,39 @@ export default function DocumentEditor() {
 
         states.forEach((state, clientId) => {
           if (clientId !== awareness.clientID && state.user && state.cursor) {
-            console.log(
-              `Remote cursor from ${state.user.name} at position ${state.cursor.index}`
-            );
-
             try {
               addRemoteCursorStyle(clientId, state.user.color);
-
               const position = model.getPositionAt(state.cursor.index);
 
-              const decorations = [];
-
-              decorations.push({
-                range: new monaco.Range(
-                  position.lineNumber,
-                  position.column,
-                  position.lineNumber,
-                  position.column
-                ),
-                options: {
-                  className: `remote-cursor-${clientId}`,
-                  hoverMessage: { value: state.user.name },
-                  stickiness:
-                    monaco.editor.TrackedRangeStickiness
-                      .NeverGrowsWhenTypingAtEdges,
+              const decorations = [
+                {
+                  range: new monaco.Range(
+                    position.lineNumber,
+                    position.column,
+                    position.lineNumber,
+                    position.column
+                  ),
+                  options: {
+                    className: `remote-cursor-${clientId}`,
+                    hoverMessage: { value: state.user.name },
+                    stickiness: monaco.editor.TrackedRangeStickiness.NeverGrowsWhenTypingAtEdges,
+                  },
                 },
-              });
-
-              decorations.push({
-                range: new monaco.Range(
-                  position.lineNumber,
-                  position.column,
-                  position.lineNumber,
-                  position.column
-                ),
-                options: {
-                  beforeContentClassName: `remote-cursor-${clientId}-before`,
-                  afterContentClassName: `remote-cursor-${clientId}-flag`,
-                  afterContent: state.user.name,
-                  stickiness:
-                    monaco.editor.TrackedRangeStickiness
-                      .NeverGrowsWhenTypingAtEdges,
+                {
+                  range: new monaco.Range(
+                    position.lineNumber,
+                    position.column,
+                    position.lineNumber,
+                    position.column
+                  ),
+                  options: {
+                    beforeContentClassName: `remote-cursor-${clientId}-before`,
+                    afterContentClassName: `remote-cursor-${clientId}-flag`,
+                    afterContent: state.user.name,
+                    stickiness: monaco.editor.TrackedRangeStickiness.NeverGrowsWhenTypingAtEdges,
+                  },
                 },
-              });
+              ];
 
               const ids = editor.deltaDecorations([], decorations);
               remoteCursorDecorations.set(clientId, ids);
@@ -430,25 +383,30 @@ export default function DocumentEditor() {
           }));
 
         setConnectedUsers(new Map(users.map((user) => [user.id, user])));
-      });
+      } catch (error) {
+        console.error("Error in awareness change handler:", error);
+      }
+    });
+  };
 
-      isInitializedRef.current = true;
-      console.log("Collaborative editing initialized successfully");
-    } catch (err) {
-      console.error("Failed to initialize collaborative editing:", err);
+  const handleEditorDidMount = async (editor, monaco) => {
+    editorRef.current = editor;
+
+    editor.updateOptions({
+      readOnly: !hasWritePermission(),
+    });
+
+    if (persistedContentRef.current) {
+      editor.setValue(persistedContentRef.current);
     }
+
+    await initializeCollaborativeEditor(editor);
   };
 
   const getRandomColor = (userId) => {
     const colors = [
-      "#F87171",
-      "#FB923C",
-      "#FBBF24",
-      "#A3E635",
-      "#34D399",
-      "#22D3EE",
-      "#818CF8",
-      "#C084FC",
+      "#F87171", "#FB923C", "#FBBF24", "#A3E635",
+      "#34D399", "#22D3EE", "#818CF8", "#C084FC",
     ];
 
     const hash = userId?.split("").reduce((acc, char) => {
@@ -460,18 +418,13 @@ export default function DocumentEditor() {
 
   const hasWritePermission = () => {
     if (!doc || !currentuser) return false;
-
     if (doc.owner._id === currentuser._id) return true;
 
     const collaborator = doc.collaborators?.find(
       (c) => c.user._id === currentuser._id
     );
 
-    return (
-      collaborator &&
-      (collaborator.permission === "write" ||
-        collaborator.permission === "admin")
-    );
+    return collaborator && (collaborator.permission === "write" || collaborator.permission === "admin");
   };
 
   const handleSave = async () => {
@@ -481,16 +434,13 @@ export default function DocumentEditor() {
       setIsSaving(true);
       const content = editorRef.current.getValue();
 
-      await api.put(`/api/documents/${id}`, {
-        content,
-        language,
-      });
-
+      await api.put(`/api/documents/${id}`, { content, language });
       await api.post(`/api/documents/${id}/versions`, {
         content,
         message: "Manual save",
       });
 
+      persistedContentRef.current = content;
       setLastSaved(new Date());
 
       const versionsResponse = await api.get(`/api/documents/${id}/versions`);
@@ -522,10 +472,7 @@ export default function DocumentEditor() {
 
     try {
       setLanguage(newLanguage);
-
-      await api.put(`/api/documents/${id}`, {
-        language: newLanguage,
-      });
+      await api.put(`/api/documents/${id}`, { language: newLanguage });
     } catch (err) {
       console.error("Failed to update language:", err);
     }
@@ -536,11 +483,11 @@ export default function DocumentEditor() {
 
     try {
       setLoading(true);
-
       await api.post(`/api/documents/${id}/restore/${versionId}`);
-
       const { data } = await api.get(`/api/documents/${id}`);
+
       setDoc(data);
+      persistedContentRef.current = data.content || "";
 
       if (editorRef.current) {
         editorRef.current.setValue(data.content);
@@ -569,10 +516,7 @@ export default function DocumentEditor() {
         isPublic: !doc.isPublic,
       });
 
-      setDoc({
-        ...doc,
-        isPublic: !doc.isPublic,
-      });
+      setDoc({ ...doc, isPublic: !doc.isPublic });
     } catch (err) {
       console.error("Failed to update document visibility:", err);
     }
@@ -611,28 +555,10 @@ export default function DocumentEditor() {
 
   const getLanguageFromExtension = (ext) => {
     const extensionMap = {
-      js: "javascript",
-      jsx: "javascript",
-      ts: "typescript",
-      tsx: "typescript",
-      html: "html",
-      css: "css",
-      py: "python",
-      java: "java",
-      c: "c",
-      cpp: "cpp",
-      cs: "csharp",
-      go: "go",
-      rs: "rust",
-      php: "php",
-      rb: "ruby",
-      md: "markdown",
-      json: "json",
-      yaml: "yaml",
-      yml: "yaml",
-      xml: "xml",
-      sql: "sql",
-      txt: "plaintext",
+      js: "javascript", jsx: "javascript", ts: "typescript", tsx: "typescript",
+      html: "html", css: "css", py: "python", java: "java", c: "c", cpp: "cpp",
+      cs: "csharp", go: "go", rs: "rust", php: "php", rb: "ruby", md: "markdown",
+      json: "json", yaml: "yaml", yml: "yaml", xml: "xml", sql: "sql", txt: "plaintext",
     };
 
     return extensionMap[ext] || "plaintext";
@@ -853,7 +779,6 @@ export default function DocumentEditor() {
             language={language}
             theme={theme}
             onMount={handleEditorDidMount}
-            defaultValue={doc?.content || ""}
             options={{
               fontSize: 14,
               minimap: { enabled: true },
