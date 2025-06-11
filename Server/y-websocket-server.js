@@ -32,20 +32,15 @@ const wss = new WebSocketServer({
 });
 
 wss.on("connection", (conn, req) => {
-  console.log("New Y.js WebSocket connection established");
-
   const url = new URL(req.url, `http://${req.headers.host}`);
   const docName = url.searchParams.get("room") || "default-room";
 
-  console.log(`Setting up connection for document: ${docName}`);
-
   const doc = getYDoc(docName);
 
-  setupWSConnection(conn, req, { doc });
-});
-
-wss.on("error", (error) => {
-  console.error("WebSocket server error:", error);
+  setupWSConnection(conn, req, {
+    docName,
+    gc: true,
+  });
 });
 
 server.listen(PORT, HOST, () => {
@@ -53,12 +48,10 @@ server.listen(PORT, HOST, () => {
 });
 
 process.on("SIGINT", () => {
-  console.log("Shutting down Y.js WebSocket server...");
   wss.clients.forEach((client) => {
     client.close(1001, "Server shutting down");
   });
   server.close(() => {
-    console.log("Y.js WebSocket server closed");
     process.exit(0);
   });
 });
