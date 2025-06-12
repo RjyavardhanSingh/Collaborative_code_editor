@@ -312,28 +312,35 @@ export default function DocumentEditor() {
 
   const setupCursorTracking = (editor, awareness) => {
     let lastCursorUpdate = 0;
+    let cursorUpdateTimeout = null;
 
     const updateCursor = () => {
-      try {
-        const now = Date.now();
-        if (now - lastCursorUpdate < 100) return;
-        lastCursorUpdate = now;
-
-        const position = editor.getPosition();
-        if (position) {
-          const model = editor.getModel();
-          if (model) {
-            const offset = model.getOffsetAt(position);
-            awareness.setLocalStateField("cursor", {
-              index: offset,
-              head: offset,
-              anchor: offset,
-            });
-          }
-        }
-      } catch (error) {
-        console.error("Error updating cursor:", error);
+      if (cursorUpdateTimeout) {
+        clearTimeout(cursorUpdateTimeout);
       }
+
+      cursorUpdateTimeout = setTimeout(() => {
+        try {
+          const now = Date.now();
+          if (now - lastCursorUpdate < 100) return;
+          lastCursorUpdate = now;
+
+          const position = editor.getPosition();
+          if (position) {
+            const model = editor.getModel();
+            if (model) {
+              const offset = model.getOffsetAt(position);
+              awareness.setLocalStateField("cursor", {
+                index: offset,
+                head: offset,
+                anchor: offset,
+              });
+            }
+          }
+        } catch (error) {
+          console.error("Error updating cursor:", error);
+        }
+      }, 50);
     };
 
     editor.onDidChangeModelContent(updateCursor);
@@ -342,21 +349,23 @@ export default function DocumentEditor() {
 
   const setupRemoteCursors = (editor, awareness) => {
     const remoteCursorDecorations = new Map();
+    let isUpdatingDecorations = false;
 
     awareness.on("change", ({ added, updated, removed }) => {
+      if (isUpdatingDecorations) return;
+
       try {
+        isUpdatingDecorations = true;
         const model = editor.getModel();
         if (!model) return;
 
         const oldDecorations = Array.from(
           remoteCursorDecorations.values()
         ).flat();
-        if (oldDecorations.length > 0) {
-          editor.deltaDecorations(oldDecorations, []);
-        }
         remoteCursorDecorations.clear();
 
         const states = awareness.getStates();
+        const newDecorations = [];
 
         states.forEach((state, clientId) => {
           if (clientId !== awareness.clientID && state.user && state.cursor) {
@@ -364,45 +373,57 @@ export default function DocumentEditor() {
               addRemoteCursorStyle(clientId, state.user.color);
               const position = model.getPositionAt(state.cursor.index);
 
-              const decorations = [
-                {
-                  range: new monaco.Range(
-                    position.lineNumber,
-                    position.column,
-                    position.lineNumber,
-                    position.column
-                  ),
-                  options: {
-                    className: `remote-cursor-${clientId}`,
-                    hoverMessage: { value: state.user.name },
-                    stickiness:
-                      monaco.editor.TrackedRangeStickiness
-                        .NeverGrowsWhenTypingAtEdges,
-                  },
+              newDecorations.push({
+                range: new monaco.Range(
+                  position.lineNumber,
+                  position.column,
+                  position.lineNumber,
+                  position.column
+                ),
+                options: {
+                  className: `remote-cursor-${clientId}`,
+                  hoverMessage: { value: state.user.name },
+                  stickiness:
+                    monaco.editor.TrackedRangeStickiness
+                      .NeverGrowsWhenTypingAtEdges,
                 },
-                {
-                  range: new monaco.Range(
-                    position.lineNumber,
-                    position.column,
-                    position.lineNumber,
-                    position.column
-                  ),
-                  options: {
-                    beforeContentClassName: `remote-cursor-${clientId}-before`,
-                    afterContentClassName: `remote-cursor-${clientId}-flag`,
-                    afterContent: state.user.name,
-                    stickiness:
-                      monaco.editor.TrackedRangeStickiness
-                        .NeverGrowsWhenTypingAtEdges,
-                  },
-                },
-              ];
+              });
 
-              const ids = editor.deltaDecorations([], decorations);
-              remoteCursorDecorations.set(clientId, ids);
+              newDecorations.push({
+                range: new monaco.Range(
+                  position.lineNumber,
+                  position.column,
+                  position.lineNumber,
+                  position.column
+                ),
+                options: {
+                  beforeContentClassName: `remote-cursor-${clientId}-before`,
+                  afterContentClassName: `remote-cursor-${clientId}-flag`,
+                  afterContent: state.user.name,
+                  stickiness:
+                    monaco.editor.TrackedRangeStickiness
+                      .NeverGrowsWhenTypingAtEdges,
+                },
+              });
             } catch (err) {
               console.error("Error rendering remote cursor:", err);
             }
+          }
+        });
+
+        const decorationIds = editor.deltaDecorations(
+          oldDecorations,
+          newDecorations
+        );
+
+        let decorationIndex = 0;
+        states.forEach((state, clientId) => {
+          if (clientId !== awareness.clientID && state.user && state.cursor) {
+            remoteCursorDecorations.set(clientId, [
+              decorationIds[decorationIndex],
+              decorationIds[decorationIndex + 1],
+            ]);
+            decorationIndex += 2;
           }
         });
 
@@ -417,6 +438,8 @@ export default function DocumentEditor() {
         setConnectedUsers(new Map(users.map((user) => [user.id, user])));
       } catch (error) {
         console.error("Error in awareness change handler:", error);
+      } finally {
+        isUpdatingDecorations = false;
       }
     });
   };
