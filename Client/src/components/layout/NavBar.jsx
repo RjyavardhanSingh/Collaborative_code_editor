@@ -9,6 +9,7 @@ import {
   FiMail,
   FiChevronLeft,
   FiBell,
+  FiHome 
 } from "react-icons/fi";
 import { useAuth } from "../../context/AuthProvider";
 import api from "../../lib/api";

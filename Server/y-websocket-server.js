@@ -15,11 +15,6 @@ const HOST = process.env.HOST || "localhost";
 const docs = new Map();
 const awarenessMap = new Map();
 
-const messageSync = 0;
-const messageAwareness = 1;
-const messageAuth = 2;
-const messageQueryAwareness = 3;
-
 const getYDoc = (docName) => {
   let doc = docs.get(docName);
   if (!doc) {
@@ -49,102 +44,181 @@ const wss = new WebSocketServer({
   maxPayload: 1024 * 1024 * 10,
 });
 
+const broadcastMessage = (docName, message, exclude) => {
+  wss.clients.forEach((client) => {
+    if (
+      client !== exclude &&
+      client.readyState === 1 &&
+      client.docName === docName
+    ) {
+      client.send(message, { binary: true });
+    }
+  });
+};
+
 wss.on("connection", (conn, req) => {
   const url = new URL(req.url, `http://${req.headers.host}`);
   const docName = url.searchParams.get("room") || "default-room";
-  console.log(`New connection to document: ${docName}`);
 
   const doc = getYDoc(docName);
   const awareness = getAwareness(docName);
-  
+
   conn.docName = docName;
-  conn.binaryType = "arraybuffer";
+  conn.id = Math.random().toString(36).substring(2);
+
+  console.log(`New connection to document ${docName}, client ID: ${conn.id}`);
 
   const send = (encoder) => {
-    if (conn.readyState === conn.CONNECTING || conn.readyState === conn.OPEN) {
-      conn.send(encoding.toUint8Array(encoder), { binary: true });
+    if (conn.readyState === 1) {
+      const message = encoding.toUint8Array(encoder);
+      conn.send(message, { binary: true });
     }
   };
 
-  const broadcastMessage = (buf, exclude) => {
-    wss.clients.forEach(client => {
-      if (client !== exclude && client.readyState === client.OPEN && client.docName === docName) {
-        client.send(buf, { binary: true });
-      }
-    });
+  const sendSyncStep1 = () => {
+    const encoder = encoding.createEncoder();
+    encoding.writeVarUint(encoder, 0); // sync message type
+    syncProtocol.writeSyncStep1(encoder, doc);
+    send(encoder);
   };
 
-  conn.on("message", (message, isBinary) => {
+  const sendSyncStep2 = (encoder) => {
+    const responseEncoder = encoding.createEncoder();
+    encoding.writeVarUint(responseEncoder, 0); // sync message type
+    syncProtocol.writeSyncStep2(responseEncoder, doc, encoder);
+    send(responseEncoder);
+  };
+
+  conn.on("message", (message) => {
     try {
-      const encoder = encoding.createEncoder();
       const decoder = decoding.createDecoder(new Uint8Array(message));
       const messageType = decoding.readVarUint(decoder);
 
       switch (messageType) {
-        case messageSync:
-          encoding.writeVarUint(encoder, messageSync);
-          syncProtocol.readSyncMessage(decoder, encoder, doc, conn);
-          
-          if (encoding.length(encoder) > 1) {
-            send(encoder);
+        case 0: // sync
+          const syncMessageType = syncProtocol.readSyncMessage(
+            decoder,
+            null,
+            doc,
+            conn
+          );
+
+          if (syncMessageType === syncProtocol.messageYjsSyncStep1) {
+            sendSyncStep2(decoder);
+          } else if (syncMessageType === syncProtocol.messageYjsSyncStep2) {
+            // Step 2 received, document is now synchronized
+            console.log(
+              `Document ${docName} synchronized for client ${conn.id}`
+            );
+          } else if (syncMessageType === syncProtocol.messageYjsUpdate) {
+            // Forward update to other clients
+            const update = decoding.readVarUint8Array(decoder);
+            const updateEncoder = encoding.createEncoder();
+            encoding.writeVarUint(updateEncoder, 0);
+            syncProtocol.writeUpdate(updateEncoder, update);
+            broadcastMessage(
+              docName,
+              encoding.toUint8Array(updateEncoder),
+              conn
+            );
           }
           break;
-          
-        case messageAwareness:
-          awarenessProtocol.applyAwarenessUpdate(awareness, decoding.readVarUint8Array(decoder), conn);
+
+        case 1: // awareness
+          const awarenessUpdate = decoding.readVarUint8Array(decoder);
+          awarenessProtocol.applyAwarenessUpdate(
+            awareness,
+            awarenessUpdate,
+            conn
+          );
+
+          // Broadcast awareness update to other clients
+          const awarenessEncoder = encoding.createEncoder();
+          encoding.writeVarUint(awarenessEncoder, 1);
+          encoding.writeVarUint8Array(awarenessEncoder, awarenessUpdate);
+          broadcastMessage(
+            docName,
+            encoding.toUint8Array(awarenessEncoder),
+            conn
+          );
           break;
-          
-        case messageQueryAwareness:
-          encoding.writeVarUint(encoder, messageAwareness);
-          encoding.writeVarUint8Array(encoder, awarenessProtocol.encodeAwarenessUpdate(awareness, Array.from(awareness.getStates().keys())));
+
+        case 3: // queryAwareness
+          const encoder = encoding.createEncoder();
+          encoding.writeVarUint(encoder, 1);
+          encoding.writeVarUint8Array(
+            encoder,
+            awarenessProtocol.encodeAwarenessUpdate(
+              awareness,
+              Array.from(awareness.getStates().keys())
+            )
+          );
           send(encoder);
           break;
       }
     } catch (err) {
-      console.error(`Error handling message: ${err.message}`);
+      console.error(
+        `Error handling message from client ${conn.id}:`,
+        err.message
+      );
     }
   });
-
-  const awarenessChangeHandler = ({ added, updated, removed }, conn) => {
-    const changedClients = added.concat(updated, removed);
-    if (changedClients.length > 0) {
-      const encoder = encoding.createEncoder();
-      encoding.writeVarUint(encoder, messageAwareness);
-      encoding.writeVarUint8Array(encoder, awarenessProtocol.encodeAwarenessUpdate(awareness, changedClients));
-      broadcastMessage(encoding.toUint8Array(encoder), conn);
-    }
-  };
 
   const documentUpdateHandler = (update, origin) => {
     if (origin !== conn) {
       const encoder = encoding.createEncoder();
-      encoding.writeVarUint(encoder, messageSync);
+      encoding.writeVarUint(encoder, 0);
       syncProtocol.writeUpdate(encoder, update);
-      broadcastMessage(encoding.toUint8Array(encoder), conn);
+      send(encoder);
     }
   };
 
+  const awarenessUpdateHandler = ({ added, updated, removed }) => {
+    const changedClients = added.concat(updated, removed);
+    if (changedClients.length > 0) {
+      const encoder = encoding.createEncoder();
+      encoding.writeVarUint(encoder, 1);
+      encoding.writeVarUint8Array(
+        encoder,
+        awarenessProtocol.encodeAwarenessUpdate(awareness, changedClients)
+      );
+      send(encoder);
+    }
+  };
+
+  // Register event handlers
   doc.on("update", documentUpdateHandler);
-  awareness.on("update", awarenessChangeHandler);
+  awareness.on("update", awarenessUpdateHandler);
 
-  const encoder = encoding.createEncoder();
-  encoding.writeVarUint(encoder, messageSync);
-  syncProtocol.writeSyncStep1(encoder, doc);
-  send(encoder);
+  // Send initial sync message
+  sendSyncStep1();
 
+  // Send current awareness states
   const awarenessStates = awareness.getStates();
   if (awarenessStates.size > 0) {
     const encoder = encoding.createEncoder();
-    encoding.writeVarUint(encoder, messageAwareness);
-    encoding.writeVarUint8Array(encoder, awarenessProtocol.encodeAwarenessUpdate(awareness, Array.from(awarenessStates.keys())));
+    encoding.writeVarUint(encoder, 1);
+    encoding.writeVarUint8Array(
+      encoder,
+      awarenessProtocol.encodeAwarenessUpdate(
+        awareness,
+        Array.from(awarenessStates.keys())
+      )
+    );
     send(encoder);
   }
 
   conn.on("close", () => {
-    console.log(`Connection to document ${docName} closed`);
+    console.log(
+      `Connection to document ${docName} closed for client ${conn.id}`
+    );
     doc.off("update", documentUpdateHandler);
-    awareness.off("update", awarenessChangeHandler);
+    awareness.off("update", awarenessUpdateHandler);
     awarenessProtocol.removeAwarenessStates(awareness, [conn.id], null);
+  });
+
+  conn.on("error", (error) => {
+    console.error(`WebSocket error for client ${conn.id}:`, error);
   });
 });
 

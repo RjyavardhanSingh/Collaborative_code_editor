@@ -197,9 +197,21 @@ export default function DocumentEditor() {
   const initializeCollaborativeEditor = async (editor) => {
     if (isCollaborativeInitialized.current || !doc) return;
 
-    console.log("Initializing Y.js collaborative editor...");
-
     try {
+      // Clean up any existing Y.js instances
+      if (bindingRef.current) {
+        bindingRef.current.destroy();
+        bindingRef.current = null;
+      }
+      if (providerRef.current) {
+        providerRef.current.destroy();
+        providerRef.current = null;
+      }
+      if (yDocRef.current) {
+        yDocRef.current.destroy();
+        yDocRef.current = null;
+      }
+
       yDocRef.current = new Y.Doc();
       const yText = yDocRef.current.getText("monaco");
 
@@ -216,43 +228,20 @@ export default function DocumentEditor() {
         wsUrl,
         `document-${id}`,
         yDocRef.current,
-        { disableBc: true }
+        { connect: false }
       );
 
-      let contentResolved = false;
-      let editorContentAtStart = editor.getValue();
+      let syncCompleted = false;
+      let bindingCreated = false;
 
-      providerRef.current.on("status", ({ status }) => {
-        console.log(`Y.js connection status: ${status}`);
-      });
+      // Initialize awareness state immediately
+      const awareness = providerRef.current.awareness;
+      awareness.setLocalState({ user: userData });
 
-      providerRef.current.on("synced", async (isSynced) => {
-        if (!isSynced || contentResolved) return;
+      const createBinding = () => {
+        if (bindingCreated) return;
 
-        const yContent = yText.toString();
-        const persistedContent = persistedContentRef.current || "";
-
-        console.log(`Y.js content length: ${yContent.length}`);
-        console.log(`Database content length: ${persistedContent.length}`);
-
-        if (yContent.length === 0) {
-          if (persistedContent.length > 0) {
-            console.log("Y.js empty: Using database content");
-            yText.insert(0, persistedContent);
-          }
-        } else {
-          console.log("Using shared Y.js content");
-          if (editor.getValue() !== yContent) {
-            editor.setValue(yContent);
-          }
-        }
-
-        contentResolved = true;
-        syncCompleted.current = true;
-
-        const awareness = providerRef.current.awareness;
-        awareness.setLocalState({ user: userData, cursor: null });
-
+        console.log("Creating Monaco binding...");
         bindingRef.current = new MonacoBinding(
           yText,
           editor.getModel(),
@@ -262,80 +251,102 @@ export default function DocumentEditor() {
 
         setupCursorTracking(editor, awareness);
         setupRemoteCursors(editor, awareness);
-
+        bindingCreated = true;
         isCollaborativeInitialized.current = true;
-        console.log("Collaborative editor initialized successfully");
+        console.log("Collaborative editing initialized successfully");
+      };
+
+      providerRef.current.on("status", ({ status }) => {
+        console.log(`Y.js connection status: ${status}`);
       });
 
-      setTimeout(() => {
-        if (!contentResolved) {
-          console.warn("Y.js sync timeout - using database content");
+      // Handle sync completion
+      providerRef.current.on("synced", (isSynced) => {
+        if (!isSynced || syncCompleted) return;
 
-          if (
-            persistedContentRef.current &&
-            editor.getValue() !== persistedContentRef.current
-          ) {
-            editor.setValue(persistedContentRef.current);
+        console.log("Y.js synced, current Y text length:", yText.length);
+        syncCompleted = true;
+
+        const yContent = yText.toString();
+        const persistedContent = persistedContentRef.current || "";
+        const editorContent = editor.getValue();
+
+        // Handle content initialization based on Y.js state
+        if (yContent.length === 0) {
+          // Y.js document is empty, use persisted content
+          if (persistedContent.length > 0) {
+            console.log("Initializing Y.js with persisted content");
+            yText.insert(0, persistedContent);
+          } else if (editorContent.length > 0) {
+            console.log("Initializing Y.js with editor content");
+            yText.insert(0, editorContent);
+          }
+        } else {
+          // Y.js has content, sync editor to match
+          if (editorContent !== yContent) {
+            console.log("Updating editor with Y.js content");
+            editor.setValue(yContent);
+          }
+        }
+
+        // Create binding after content is synchronized
+        setTimeout(createBinding, 100);
+      });
+
+      // Handle connection errors
+      providerRef.current.on("connection-error", (error) => {
+        console.error("Y.js connection error:", error);
+      });
+
+      // Start connection
+      console.log("Connecting to Y.js WebSocket server...");
+      providerRef.current.connect();
+
+      // Fallback timeout
+      setTimeout(() => {
+        if (!bindingCreated) {
+          console.warn("Y.js sync timeout - creating binding without sync");
+
+          // Initialize Y.js with current editor content if needed
+          const editorContent = editor.getValue();
+          if (yText.length === 0 && editorContent.length > 0) {
+            yText.insert(0, editorContent);
           }
 
-          contentResolved = true;
-          syncCompleted.current = true;
-
-          const awareness = providerRef.current.awareness;
-          awareness.setLocalState({ user: userData, cursor: null });
-
-          bindingRef.current = new MonacoBinding(
-            yText,
-            editor.getModel(),
-            new Set([editor]),
-            awareness
-          );
-
-          setupCursorTracking(editor, awareness);
-          setupRemoteCursors(editor, awareness);
-
-          isCollaborativeInitialized.current = true;
-          console.log("Collaborative editor initialized with timeout fallback");
+          createBinding();
         }
       }, 3000);
     } catch (err) {
       console.error("Failed to initialize collaborative editor:", err);
-
-      if (
-        persistedContentRef.current &&
-        editor.getValue() !== persistedContentRef.current
-      ) {
-        editor.setValue(persistedContentRef.current);
-      }
     }
   };
 
   const setupCursorTracking = (editor, awareness) => {
-    let lastCursorUpdate = 0;
-    let cursorUpdateTimeout = null;
+    let lastPosition = null;
+    let updateTimeout = null;
 
     const updateCursor = () => {
-      if (cursorUpdateTimeout) {
-        clearTimeout(cursorUpdateTimeout);
+      if (updateTimeout) {
+        clearTimeout(updateTimeout);
       }
 
-      cursorUpdateTimeout = setTimeout(() => {
+      updateTimeout = setTimeout(() => {
         try {
-          const now = Date.now();
-          if (now - lastCursorUpdate < 100) return;
-          lastCursorUpdate = now;
-
           const position = editor.getPosition();
-          if (position) {
-            const model = editor.getModel();
-            if (model) {
-              const offset = model.getOffsetAt(position);
-              awareness.setLocalStateField("cursor", {
-                index: offset,
-                head: offset,
-                anchor: offset,
-              });
-            }
+          if (!position) return;
+
+          const model = editor.getModel();
+          if (!model) return;
+
+          const offset = model.getOffsetAt(position);
+
+          if (lastPosition !== offset) {
+            lastPosition = offset;
+            awareness.setLocalStateField("cursor", {
+              index: offset,
+              head: offset,
+              anchor: offset,
+            });
           }
         } catch (error) {
           console.error("Error updating cursor:", error);
@@ -343,35 +354,42 @@ export default function DocumentEditor() {
       }, 50);
     };
 
-    editor.onDidChangeModelContent(updateCursor);
     editor.onDidChangeCursorPosition(updateCursor);
+    editor.onDidChangeModelContent(() => {
+      setTimeout(updateCursor, 10);
+    });
   };
 
   const setupRemoteCursors = (editor, awareness) => {
     const remoteCursorDecorations = new Map();
-    let isUpdatingDecorations = false;
+    let updateInProgress = false;
 
-    awareness.on("change", ({ added, updated, removed }) => {
-      if (isUpdatingDecorations) return;
+    const updateRemoteCursors = () => {
+      if (updateInProgress) return;
+      updateInProgress = true;
 
       try {
-        isUpdatingDecorations = true;
         const model = editor.getModel();
         if (!model) return;
 
-        const oldDecorations = Array.from(
-          remoteCursorDecorations.values()
-        ).flat();
+        const oldDecorationIds = [];
+        remoteCursorDecorations.forEach((decorations) => {
+          oldDecorationIds.push(...decorations);
+        });
         remoteCursorDecorations.clear();
 
         const states = awareness.getStates();
         const newDecorations = [];
+        const decorationMeta = [];
 
         states.forEach((state, clientId) => {
           if (clientId !== awareness.clientID && state.user && state.cursor) {
             try {
-              addRemoteCursorStyle(clientId, state.user.color);
               const position = model.getPositionAt(state.cursor.index);
+
+              addRemoteCursorStyle(clientId, state.user.color);
+
+              const decorationStart = newDecorations.length;
 
               newDecorations.push({
                 range: new monaco.Range(
@@ -405,26 +423,32 @@ export default function DocumentEditor() {
                       .NeverGrowsWhenTypingAtEdges,
                 },
               });
+
+              decorationMeta.push({
+                clientId,
+                start: decorationStart,
+                count: 2,
+              });
             } catch (err) {
-              console.error("Error rendering remote cursor:", err);
+              console.error(
+                "Error processing cursor for client",
+                clientId,
+                err
+              );
             }
           }
         });
 
         const decorationIds = editor.deltaDecorations(
-          oldDecorations,
+          oldDecorationIds,
           newDecorations
         );
 
-        let decorationIndex = 0;
-        states.forEach((state, clientId) => {
-          if (clientId !== awareness.clientID && state.user && state.cursor) {
-            remoteCursorDecorations.set(clientId, [
-              decorationIds[decorationIndex],
-              decorationIds[decorationIndex + 1],
-            ]);
-            decorationIndex += 2;
-          }
+        decorationMeta.forEach(({ clientId, start, count }) => {
+          remoteCursorDecorations.set(
+            clientId,
+            decorationIds.slice(start, start + count)
+          );
         });
 
         const users = Array.from(states.entries())
@@ -437,10 +461,14 @@ export default function DocumentEditor() {
 
         setConnectedUsers(new Map(users.map((user) => [user.id, user])));
       } catch (error) {
-        console.error("Error in awareness change handler:", error);
+        console.error("Error in remote cursor update:", error);
       } finally {
-        isUpdatingDecorations = false;
+        updateInProgress = false;
       }
+    };
+
+    awareness.on("change", () => {
+      requestAnimationFrame(updateRemoteCursors);
     });
   };
 
@@ -676,6 +704,28 @@ export default function DocumentEditor() {
 
     return () => clearInterval(intervalId);
   }, [activeUsers, doc]);
+
+  // Add debug logging for Y.js events
+  useEffect(() => {
+    if (!yDocRef.current) return;
+
+    const yText = yDocRef.current.getText("monaco");
+
+    const handleTextChange = (delta, origin) => {
+      console.log("Y.js text changed:", {
+        delta: delta.toString(),
+        origin: origin?.constructor?.name || "unknown",
+        newLength: yText.length,
+        content: yText.toString().substring(0, 100) + "...",
+      });
+    };
+
+    yText.observe(handleTextChange);
+
+    return () => {
+      yText.unobserve(handleTextChange);
+    };
+  }, [yDocRef.current]);
 
   if (loading) {
     return (
