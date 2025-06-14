@@ -3,10 +3,6 @@ import { useParams, useNavigate } from "react-router-dom";
 import { useAuth } from "../../context/AuthProvider";
 import { motion } from "framer-motion";
 import Editor from "@monaco-editor/react";
-import * as Y from "yjs";
-import { WebsocketProvider } from "y-websocket";
-import { MonacoBinding } from "y-monaco";
-import { io } from "socket.io-client";
 import api from "../../lib/api.js";
 import Navbar from "../../components/layout/NavBar";
 import {
@@ -24,8 +20,12 @@ import {
 } from "react-icons/fi";
 import InvitationModal from "../../components/collaboration/InvitationModal";
 import CollaboratorManagement from "../../components/collaboration/CollaboratorManagement";
+import { Connection } from "sharedb/lib/client";
+import ReconnectingWebSocket from "reconnecting-websocket";
+import { MonacoShareDBBinding } from "../../lib/MonacoShareDBBinding";
+import { io } from "socket.io-client";
 
-const addRemoteCursorStyle = (clientId, color) => {
+const addRemoteCursorStyle = (clientId, color, name) => {
   const styleId = `remote-cursor-${clientId}-style`;
 
   const existingStyle = document.getElementById(styleId);
@@ -38,33 +38,21 @@ const addRemoteCursorStyle = (clientId, color) => {
   style.innerHTML = `
     .remote-cursor-${clientId} {
       position: relative;
-      border-left: 3px solid ${color} !important;
+      border-left: 2px solid ${color} !important;
       background-color: ${color}20 !important;
     }
     
-    .remote-cursor-${clientId}-before {
-      position: absolute !important;
-      border-left: 3px solid ${color} !important;
-      height: 100% !important;
-      box-shadow: 0 0 5px ${color} !important;
-    }
-    
-    .remote-cursor-${clientId}-flag {
-      position: absolute !important;
-      left: -2px !important;
-      top: -18px !important;
-      background-color: ${color} !important;
-      color: white !important;
-      font-size: 12px !important;
-      font-weight: bold !important;
-      padding: 1px 4px !important;
-      line-height: 16px !important;
-      white-space: nowrap !important;
-      z-index: 9999 !important;
-      border-radius: 3px !important;
-      user-select: none !important;
-      pointer-events: none !important;
-      box-shadow: 0 2px 4px rgba(0,0,0,0.5) !important;
+    .remote-cursor-${clientId}::after {
+      content: "${name}";
+      position: absolute;
+      left: -2px;
+      top: -18px;
+      background-color: ${color};
+      color: white;
+      font-size: 10px;
+      padding: 1px 4px;
+      border-radius: 2px;
+      white-space: nowrap;
     }
   `;
 
@@ -77,13 +65,20 @@ export default function DocumentEditor() {
   const { currentuser } = useAuth();
   const editorRef = useRef(null);
   const socketRef = useRef(null);
-  const yDocRef = useRef(null);
-  const providerRef = useRef(null);
-  const messageContainerRef = useRef(null);
+  const shareDBConnectionRef = useRef(null);
+  const shareDBDocRef = useRef(null);
   const bindingRef = useRef(null);
+  // Add this missing ref
+  const cursorSocketRef = useRef(null);
+  const messageContainerRef = useRef(null);
   const isCollaborativeInitialized = useRef(false);
   const persistedContentRef = useRef(null);
   const syncCompleted = useRef(false);
+  const cursorTrackingRef = useRef(null);
+  const remoteCursorDecorations = useRef(new Map());
+  const syncIntervalRef = useRef(null);
+  const heartbeatIntervalRef = useRef(null);
+  const autoSaveTimeoutRef = useRef(null);
 
   const [doc, setDoc] = useState(null);
   const [loading, setLoading] = useState(true);
@@ -151,14 +146,15 @@ export default function DocumentEditor() {
       if (bindingRef.current) {
         bindingRef.current.destroy();
       }
-      if (providerRef.current) {
-        providerRef.current.disconnect();
+      if (shareDBDocRef.current) {
+        shareDBDocRef.current.destroy();
       }
-      if (socketRef.current) {
-        socketRef.current.disconnect();
+      if (shareDBConnectionRef.current) {
+        shareDBConnectionRef.current.close();
       }
-      if (yDocRef.current) {
-        yDocRef.current.destroy();
+      // Updated cleanup for cursor tracking
+      if (cursorTrackingRef.current) {
+        cursorTrackingRef.current.cleanup();
       }
     };
   }, [id]);
@@ -197,292 +193,200 @@ export default function DocumentEditor() {
   const initializeCollaborativeEditor = async (editor) => {
     if (isCollaborativeInitialized.current || !doc) return;
 
+    console.log("🚀 Initializing collaborative editor with ShareDB...");
+
     try {
-      // Clean up any existing Y.js instances
+      // Clean up existing connections
+      cleanupConnections();
+
+      const wsUrl = import.meta.env.VITE_SHAREDB_URL || "ws://localhost:8080";
+      const roomName = `document-${id}`;
+
+      console.log(`🔌 Connecting to ShareDB: ${wsUrl}/${roomName}`);
+
+      // Create reconnecting WebSocket for ShareDB (document sync)
+      const shareDBSocket = new ReconnectingWebSocket(`${wsUrl}/${roomName}`);
+
+      // Create ShareDB connection with the ShareDB socket
+      shareDBConnectionRef.current = new Connection(shareDBSocket);
+
+      // Get the document from ShareDB
+      const shareDoc = shareDBConnectionRef.current.get("documents", id);
+      shareDBDocRef.current = shareDoc;
+
+      // Subscribe to the document
+      shareDoc.subscribe(function (err) {
+        if (err) {
+          console.error("ShareDB subscription error:", err);
+          return;
+        }
+
+        console.log("✅ Subscribed to ShareDB document");
+
+        // Create or load the document
+        if (!shareDoc.type) {
+          // Document doesn't exist, create it with the initial content
+          const initialContent = persistedContentRef.current || "";
+          shareDoc.create(
+            { content: initialContent, language: language },
+            function (err) {
+              if (err) {
+                console.error("ShareDB document creation error:", err);
+                return;
+              }
+
+              console.log("📄 Document created in ShareDB");
+              createBinding(editor, shareDoc);
+            }
+          );
+        } else {
+          console.log("📄 Document loaded from ShareDB");
+
+          // Update local content if needed
+          if (shareDoc.data && shareDoc.data.content !== undefined) {
+            persistedContentRef.current = shareDoc.data.content;
+            editor.setValue(shareDoc.data.content);
+          } else if (persistedContentRef.current) {
+            // Update the document with our content
+            shareDoc.submitOp([
+              { p: ["content"], oi: persistedContentRef.current },
+            ]);
+          }
+
+          createBinding(editor, shareDoc);
+        }
+      });
+    } catch (error) {
+      console.error("❌ Failed to initialize collaborative editor:", error);
+    }
+  };
+
+  const createBinding = (editor, shareDoc) => {
+    try {
+      console.log("🔗 Creating Monaco-ShareDB binding...");
+
+      // Create a new binding with our custom class
+      bindingRef.current = new MonacoShareDBBinding(shareDoc, editor);
+
+      console.log("✅ Monaco-ShareDB binding created");
+
+      // Initialize auto-save
+      initializeAutoSave(shareDoc);
+
+      isCollaborativeInitialized.current = true;
+      console.log("🎉 Collaborative editor fully initialized");
+    } catch (err) {
+      console.error("❌ Error creating binding:", err);
+    }
+  };
+
+  // Simplified auto-save function
+  const initializeAutoSave = (shareDoc) => {
+    let saveTimeout = null;
+    let lastSavedContent = "";
+
+    const autoSave = () => {
+      if (saveTimeout) clearTimeout(saveTimeout);
+
+      console.log("📝 Document changed, scheduling auto-save");
+
+      saveTimeout = setTimeout(async () => {
+        try {
+          if (!hasWritePermission()) return;
+
+          const content = shareDoc.data?.content || "";
+          if (content === lastSavedContent) return;
+
+          console.log("💾 Auto-saving document...");
+
+          await api.put(`/api/documents/${id}`, { content, language });
+          lastSavedContent = content;
+          persistedContentRef.current = content;
+          setLastSaved(new Date());
+
+          console.log("✅ Auto-save completed");
+        } catch (error) {
+          console.error("❌ Auto-save failed:", error);
+        }
+      }, 1500);
+    };
+
+    // Listen for ShareDB operations
+    shareDoc.on("op", (op, source) => {
+      autoSave();
+    });
+
+    autoSaveTimeoutRef.current = saveTimeout;
+  };
+
+  // CRITICAL FIX: Update your Y.js WebSocket server URL handling
+  // Make sure your WebSocket server is running on the correct URL
+  const cleanupConnections = () => {
+    try {
       if (bindingRef.current) {
         bindingRef.current.destroy();
         bindingRef.current = null;
       }
-      if (providerRef.current) {
-        providerRef.current.destroy();
-        providerRef.current = null;
+      if (shareDBDocRef.current) {
+        shareDBDocRef.current.destroy();
+        shareDBDocRef.current = null;
       }
-      if (yDocRef.current) {
-        yDocRef.current.destroy();
-        yDocRef.current = null;
+      if (shareDBConnectionRef.current) {
+        shareDBConnectionRef.current.close();
+        shareDBConnectionRef.current = null;
+      }
+      if (cursorTrackingRef.current) {
+        cursorTrackingRef.current.cleanup();
+        cursorTrackingRef.current = null;
       }
 
-      yDocRef.current = new Y.Doc();
-      const yText = yDocRef.current.getText("monaco");
+      // Add null check for cursorSocketRef
+      if (
+        cursorSocketRef.current &&
+        cursorSocketRef.current.readyState === WebSocket.OPEN
+      ) {
+        cursorSocketRef.current.close();
+        cursorSocketRef.current = null;
+      }
 
-      const wsUrl =
-        import.meta.env.VITE_YWEBSOCKET_URL || "ws://localhost:1234";
+      // Clean up cursor styles
+      document
+        .querySelectorAll('[id^="remote-cursor-"]')
+        .forEach((el) => el.remove());
 
-      const userData = {
-        name: currentuser?.username || "Anonymous",
-        color: getRandomColor(currentuser?._id || "default"),
-        id: currentuser?._id ? String(currentuser._id) : "anonymous",
-      };
+      if (autoSaveTimeoutRef.current) {
+        clearTimeout(autoSaveTimeoutRef.current);
+        autoSaveTimeoutRef.current = null;
+      }
 
-      providerRef.current = new WebsocketProvider(
-        wsUrl,
-        `document-${id}`,
-        yDocRef.current,
-        { connect: false }
-      );
-
-      let syncCompleted = false;
-      let bindingCreated = false;
-
-      // Initialize awareness state immediately
-      const awareness = providerRef.current.awareness;
-      awareness.setLocalState({ user: userData });
-
-      const createBinding = () => {
-        if (bindingCreated) return;
-
-        console.log("Creating Monaco binding...");
-        bindingRef.current = new MonacoBinding(
-          yText,
-          editor.getModel(),
-          new Set([editor]),
-          awareness
-        );
-
-        setupCursorTracking(editor, awareness);
-        setupRemoteCursors(editor, awareness);
-        bindingCreated = true;
-        isCollaborativeInitialized.current = true;
-        console.log("Collaborative editing initialized successfully");
-      };
-
-      providerRef.current.on("status", ({ status }) => {
-        console.log(`Y.js connection status: ${status}`);
-      });
-
-      // Handle sync completion
-      providerRef.current.on("synced", (isSynced) => {
-        if (!isSynced || syncCompleted) return;
-
-        console.log("Y.js synced, current Y text length:", yText.length);
-        syncCompleted = true;
-
-        const yContent = yText.toString();
-        const persistedContent = persistedContentRef.current || "";
-        const editorContent = editor.getValue();
-
-        // Handle content initialization based on Y.js state
-        if (yContent.length === 0) {
-          // Y.js document is empty, use persisted content
-          if (persistedContent.length > 0) {
-            console.log("Initializing Y.js with persisted content");
-            yText.insert(0, persistedContent);
-          } else if (editorContent.length > 0) {
-            console.log("Initializing Y.js with editor content");
-            yText.insert(0, editorContent);
-          }
-        } else {
-          // Y.js has content, sync editor to match
-          if (editorContent !== yContent) {
-            console.log("Updating editor with Y.js content");
-            editor.setValue(yContent);
-          }
-        }
-
-        // Create binding after content is synchronized
-        setTimeout(createBinding, 100);
-      });
-
-      // Handle connection errors
-      providerRef.current.on("connection-error", (error) => {
-        console.error("Y.js connection error:", error);
-      });
-
-      // Start connection
-      console.log("Connecting to Y.js WebSocket server...");
-      providerRef.current.connect();
-
-      // Fallback timeout
-      setTimeout(() => {
-        if (!bindingCreated) {
-          console.warn("Y.js sync timeout - creating binding without sync");
-
-          // Initialize Y.js with current editor content if needed
-          const editorContent = editor.getValue();
-          if (yText.length === 0 && editorContent.length > 0) {
-            yText.insert(0, editorContent);
-          }
-
-          createBinding();
-        }
-      }, 3000);
-    } catch (err) {
-      console.error("Failed to initialize collaborative editor:", err);
+      isCollaborativeInitialized.current = false;
+    } catch (error) {
+      console.error("❌ Cleanup error:", error);
     }
-  };
-
-  const setupCursorTracking = (editor, awareness) => {
-    let lastPosition = null;
-    let updateTimeout = null;
-
-    const updateCursor = () => {
-      if (updateTimeout) {
-        clearTimeout(updateTimeout);
-      }
-
-      updateTimeout = setTimeout(() => {
-        try {
-          const position = editor.getPosition();
-          if (!position) return;
-
-          const model = editor.getModel();
-          if (!model) return;
-
-          const offset = model.getOffsetAt(position);
-
-          if (lastPosition !== offset) {
-            lastPosition = offset;
-            awareness.setLocalStateField("cursor", {
-              index: offset,
-              head: offset,
-              anchor: offset,
-            });
-          }
-        } catch (error) {
-          console.error("Error updating cursor:", error);
-        }
-      }, 50);
-    };
-
-    editor.onDidChangeCursorPosition(updateCursor);
-    editor.onDidChangeModelContent(() => {
-      setTimeout(updateCursor, 10);
-    });
-  };
-
-  const setupRemoteCursors = (editor, awareness) => {
-    const remoteCursorDecorations = new Map();
-    let updateInProgress = false;
-
-    const updateRemoteCursors = () => {
-      if (updateInProgress) return;
-      updateInProgress = true;
-
-      try {
-        const model = editor.getModel();
-        if (!model) return;
-
-        const oldDecorationIds = [];
-        remoteCursorDecorations.forEach((decorations) => {
-          oldDecorationIds.push(...decorations);
-        });
-        remoteCursorDecorations.clear();
-
-        const states = awareness.getStates();
-        const newDecorations = [];
-        const decorationMeta = [];
-
-        states.forEach((state, clientId) => {
-          if (clientId !== awareness.clientID && state.user && state.cursor) {
-            try {
-              const position = model.getPositionAt(state.cursor.index);
-
-              addRemoteCursorStyle(clientId, state.user.color);
-
-              const decorationStart = newDecorations.length;
-
-              newDecorations.push({
-                range: new monaco.Range(
-                  position.lineNumber,
-                  position.column,
-                  position.lineNumber,
-                  position.column
-                ),
-                options: {
-                  className: `remote-cursor-${clientId}`,
-                  hoverMessage: { value: state.user.name },
-                  stickiness:
-                    monaco.editor.TrackedRangeStickiness
-                      .NeverGrowsWhenTypingAtEdges,
-                },
-              });
-
-              newDecorations.push({
-                range: new monaco.Range(
-                  position.lineNumber,
-                  position.column,
-                  position.lineNumber,
-                  position.column
-                ),
-                options: {
-                  beforeContentClassName: `remote-cursor-${clientId}-before`,
-                  afterContentClassName: `remote-cursor-${clientId}-flag`,
-                  afterContent: state.user.name,
-                  stickiness:
-                    monaco.editor.TrackedRangeStickiness
-                      .NeverGrowsWhenTypingAtEdges,
-                },
-              });
-
-              decorationMeta.push({
-                clientId,
-                start: decorationStart,
-                count: 2,
-              });
-            } catch (err) {
-              console.error(
-                "Error processing cursor for client",
-                clientId,
-                err
-              );
-            }
-          }
-        });
-
-        const decorationIds = editor.deltaDecorations(
-          oldDecorationIds,
-          newDecorations
-        );
-
-        decorationMeta.forEach(({ clientId, start, count }) => {
-          remoteCursorDecorations.set(
-            clientId,
-            decorationIds.slice(start, start + count)
-          );
-        });
-
-        const users = Array.from(states.entries())
-          .filter(([clientId, state]) => state.user)
-          .map(([clientId, state]) => ({
-            id: clientId,
-            name: state.user.name,
-            color: state.user.color,
-          }));
-
-        setConnectedUsers(new Map(users.map((user) => [user.id, user])));
-      } catch (error) {
-        console.error("Error in remote cursor update:", error);
-      } finally {
-        updateInProgress = false;
-      }
-    };
-
-    awareness.on("change", () => {
-      requestAnimationFrame(updateRemoteCursors);
-    });
   };
 
   const handleEditorDidMount = async (editor, monaco) => {
     editorRef.current = editor;
+    window.monaco = monaco;
 
+    // Set editor options
     editor.updateOptions({
       readOnly: !hasWritePermission(),
+      fontSize: 14,
+      minimap: { enabled: true },
+      automaticLayout: true,
+      tabSize: 2,
+      wordWrap: "on",
+      lineNumbers: "on",
+      folding: true,
     });
 
+    // Set initial content
     if (persistedContentRef.current) {
       editor.setValue(persistedContentRef.current);
     }
 
+    // Initialize collaborative editing
     await initializeCollaborativeEditor(editor);
   };
 
@@ -705,27 +609,141 @@ export default function DocumentEditor() {
     return () => clearInterval(intervalId);
   }, [activeUsers, doc]);
 
-  // Add debug logging for Y.js events
-  useEffect(() => {
-    if (!yDocRef.current) return;
+  // Add this to your DocumentEditor.jsx component
+  const forceYjsSync = (editor, yText) => {
+    if (!editor || !yText) return;
+    console.log("🔄 Force-syncing content between Y.js and Monaco");
 
-    const yText = yDocRef.current.getText("monaco");
+    const yContent = yText.toString();
+    const editorContent = editor.getValue();
 
-    const handleTextChange = (delta, origin) => {
-      console.log("Y.js text changed:", {
-        delta: delta.toString(),
-        origin: origin?.constructor?.name || "unknown",
-        newLength: yText.length,
-        content: yText.toString().substring(0, 100) + "...",
-      });
+    // Only update if content actually differs
+    if (yContent !== editorContent) {
+      console.log("⚠️ Content mismatch detected, syncing...");
+
+      try {
+        // First try to update Y.js if editor has newer content
+        // This helps when local changes haven't been sent yet
+        if (
+          editorContent.length > yContent.length &&
+          (!yDocRef.current._transaction || !providerRef.current.synced)
+        ) {
+          console.log("📤 Updating Y.js from editor");
+          yDocRef.current.transact(() => {
+            yText.delete(0, yText.length);
+            yText.insert(0, editorContent);
+          });
+        }
+        // Otherwise update editor from Y.js (more common case)
+        else {
+          console.log("📥 Updating editor from Y.js");
+          // Use Monaco's executeEdits to properly handle undo/redo stack
+          editor.executeEdits("yjs-sync", [
+            {
+              range: editor.getModel().getFullModelRange(),
+              text: yContent,
+              forceMoveMarkers: true,
+            },
+          ]);
+        }
+        console.log("✅ Force sync completed");
+      } catch (err) {
+        console.error("❌ Force sync failed:", err);
+      }
+    }
+  };
+
+  const setupCursorTracking = (editor) => {
+    console.log("👁️ Setting up cursor tracking with Socket.IO...");
+
+    if (!socketRef.current) {
+      console.warn(
+        "⚠️ No Socket.IO connection available - cursor tracking disabled"
+      );
+      return;
+    }
+
+    // Track and send cursor position
+    const sendCursorPosition = () => {
+      try {
+        if (!socketRef.current || !socketRef.current.connected) return;
+
+        const position = editor.getPosition();
+        const selection = editor.getSelection();
+
+        if (!position || !selection) return;
+
+        const cursorData = {
+          documentId: id,
+          position: {
+            lineNumber: position.lineNumber,
+            column: position.column,
+            selection: {
+              startLineNumber: selection.startLineNumber,
+              startColumn: selection.startColumn,
+              endLineNumber: selection.endLineNumber,
+              endColumn: selection.endColumn,
+            },
+          },
+        };
+
+        socketRef.current.emit("cursor-position", cursorData);
+      } catch (error) {
+        console.error("❌ Cursor update error:", error);
+      }
     };
 
-    yText.observe(handleTextChange);
-
-    return () => {
-      yText.unobserve(handleTextChange);
+    // Update cursor every 100ms while moving
+    let cursorUpdateTimeout = null;
+    const updateCursorDebounced = () => {
+      if (cursorUpdateTimeout) clearTimeout(cursorUpdateTimeout);
+      cursorUpdateTimeout = setTimeout(sendCursorPosition, 100);
     };
-  }, [yDocRef.current]);
+
+    // Listen for remote cursor updates
+    socketRef.current.on("cursor-position", (data) => {
+      if (data.userId === currentuser?._id) return;
+
+      updateRemoteCursor(
+        data.userId,
+        data.position,
+        getRandomColor(data.userId)
+      );
+    });
+
+    // Implementation of updateRemoteCursor and rest of the function...
+    // (Keep your existing code for rendering cursor decorations)
+
+    // Monitor cursor movement
+    const cursorDisposable = editor.onDidChangeCursorPosition(
+      updateCursorDebounced
+    );
+    const selectionDisposable = editor.onDidChangeCursorSelection(
+      updateCursorDebounced
+    );
+
+    // Store for cleanup
+    cursorTrackingRef.current = {
+      cursorDisposable,
+      selectionDisposable,
+      cleanup: () => {
+        cursorDisposable.dispose();
+        selectionDisposable.dispose();
+        if (socketRef.current) {
+          socketRef.current.off("cursor-position");
+        }
+        if (editor && !editor.isDisposed() && editor.getModel()) {
+          editor.deltaDecorations(cursorDecorations, []);
+        }
+        if (cursorUpdateTimeout) {
+          clearTimeout(cursorUpdateTimeout);
+        }
+      },
+    };
+
+    // Initial cursor update
+    setTimeout(sendCursorPosition, 500);
+  };
 
   if (loading) {
     return (

@@ -4,7 +4,10 @@
   "main": "index.js",
   "type": "module",
   "scripts": {
-    "dev": "concurrently \"nodemon index.js\" \"node y-websocket-server.js\"",
+    "dev": "nodemon index.js",
+    "dev:sharedb": "node sharedb-server.js",
+    "dev:cursors": "node cursor-server.js",
+    "dev:all": "concurrently \"npm run dev\" \"npm run dev:sharedb\" \"npm run dev:cursors\"",
     "start": "node index.js & node y-websocket-server.js",
     "build": "babel  -d dist",
     "lint": "eslint src",
@@ -28,8 +31,11 @@
     "lodash.debounce": "^4.0.8",
     "mongoose": "^8.15.1",
     "multer": "^2.0.1",
+    "sharedb": "^5.2.2",
+    "sharedb-mongo": "^5.0.0",
     "socket.io": "^4.8.1",
     "socket.io-client": "^4.8.1",
+    "websocket-json-stream": "^0.0.3",
     "ws": "^8.18.2",
     "y-protocols": "^1.0.6",
     "y-websocket": "^3.0.0"
