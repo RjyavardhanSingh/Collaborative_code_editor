@@ -1,11 +1,52 @@
 import { motion } from "framer-motion";
 import { Container } from "../layout/Container";
+import { Tabs } from "../ui/tabs";
 
 const features = [
   {
-    name: "Real-time Collaboration",
-    description:
-      "Write code with your team simultaneously. See changes as they happen with multi-cursor support.",
+    title: "Real-time Collaboration",
+    value: "collaboration",
+    content: (
+      <div className="w-full overflow-hidden relative h-full rounded-2xl p-10 text-xl md:text-4xl font-bold text-white bg-gradient-to-r from-blue-500 to-purple-600">
+        <div className="flex flex-col md:flex-row gap-8 items-start">
+          <div className="flex-1">
+            <h3 className="text-xl md:text-3xl font-bold mb-4">
+              Real-time Collaboration
+            </h3>
+            <p className="text-base md:text-lg font-normal opacity-80 mb-8">
+              Write code with your team simultaneously. See changes as they
+              happen with multi-cursor support and watch your teammates edit in
+              real-time.
+            </p>
+            <div className="flex items-center text-sm text-blue-300 hover:text-blue-200 transition cursor-pointer">
+              Learn more
+              <svg
+                className="ml-1 h-4 w-4"
+                viewBox="0 0 20 20"
+                fill="currentColor"
+              >
+                <path
+                  fillRule="evenodd"
+                  d="M12.293 5.293a1 1 0 011.414 0l4 4a1 1 0 010 1.414l-4 4a1 1 0 01-1.414-1.414L14.586 11H3a1 1 0 110-2h11.586l-2.293-2.293a1 1 0 010-1.414z"
+                  clipRule="evenodd"
+                />
+              </svg>
+            </div>
+          </div>
+          <div className="flex-1 relative h-64 md:h-80">
+            <img
+              src="/images/collab-demo.webp"
+              alt="Collaboration Demo"
+              className="object-cover rounded-xl shadow-lg h-full w-full"
+              onError={(e) => {
+                e.target.src =
+                  "https://placehold.co/600x400/082f49/e0f2fe?text=Real-time+Collaboration";
+              }}
+            />
+          </div>
+        </div>
+      </div>
+    ),
     icon: (
       <svg
         xmlns="http://www.w3.org/2000/svg"
@@ -24,9 +65,49 @@ const features = [
     ),
   },
   {
-    name: "Smart Code Editor",
-    description:
-      "Syntax highlighting for 30+ languages, auto-completion, and intelligent suggestions.",
+    title: "Syntax Highlighting",
+    value: "syntax",
+    content: (
+      <div className="w-full overflow-hidden relative h-full rounded-2xl p-10 text-xl md:text-4xl font-bold text-white bg-gradient-to-r from-blue-500 to-purple-600">
+        <div className="flex flex-col md:flex-row gap-8 items-start">
+          <div className="flex-1">
+            <h3 className="text-xl md:text-3xl font-bold mb-4">
+              Syntax Highlighting
+            </h3>
+            <p className="text-base md:text-lg font-normal opacity-80 mb-8">
+              Support for over 30 programming languages with beautiful syntax
+              highlighting. Make your code readable and easier to understand at
+              a glance.
+            </p>
+            <div className="flex items-center text-sm text-blue-300 hover:text-blue-200 transition cursor-pointer">
+              Learn more
+              <svg
+                className="ml-1 h-4 w-4"
+                viewBox="0 0 20 20"
+                fill="currentColor"
+              >
+                <path
+                  fillRule="evenodd"
+                  d="M12.293 5.293a1 1 0 011.414 0l4 4a1 1 0 010 1.414l-4 4a1 1 0 01-1.414-1.414L14.586 11H3a1 1 0 110-2h11.586l-2.293-2.293a1 1 0 010-1.414z"
+                  clipRule="evenodd"
+                />
+              </svg>
+            </div>
+          </div>
+          <div className="flex-1 relative h-64 md:h-80">
+            <img
+              src="/images/syntax-demo.webp"
+              alt="Syntax Highlighting"
+              className="object-cover rounded-xl shadow-lg h-full w-full"
+              onError={(e) => {
+                e.target.src =
+                  "https://placehold.co/600x400/082f49/e0f2fe?text=Syntax+Highlighting";
+              }}
+            />
+          </div>
+        </div>
+      </div>
+    ),
     icon: (
       <svg
         xmlns="http://www.w3.org/2000/svg"
@@ -45,9 +126,48 @@ const features = [
     ),
   },
   {
-    name: "Version Control",
-    description:
-      "Keep track of changes with automatic versioning. Compare and restore previous versions easily.",
+    title: "Version Control",
+    value: "version-control",
+    content: (
+      <div className="w-full overflow-hidden relative h-full rounded-2xl p-10 text-xl md:text-4xl font-bold text-white bg-gradient-to-r from-blue-500 to-purple-600">
+        <div className="flex flex-col md:flex-row gap-8 items-start">
+          <div className="flex-1">
+            <h3 className="text-xl md:text-3xl font-bold mb-4">
+              Version Control
+            </h3>
+            <p className="text-base md:text-lg font-normal opacity-80 mb-8">
+              Keep track of changes with automatic versioning. Compare and
+              restore previous versions easily without leaving your workspace.
+            </p>
+            <div className="flex items-center text-sm text-blue-300 hover:text-blue-200 transition cursor-pointer">
+              Learn more
+              <svg
+                className="ml-1 h-4 w-4"
+                viewBox="0 0 20 20"
+                fill="currentColor"
+              >
+                <path
+                  fillRule="evenodd"
+                  d="M12.293 5.293a1 1 0 011.414 0l4 4a1 1 0 010 1.414l-4 4a1 1 0 01-1.414-1.414L14.586 11H3a1 1 0 110-2h11.586l-2.293-2.293a1 1 0 010-1.414z"
+                  clipRule="evenodd"
+                />
+              </svg>
+            </div>
+          </div>
+          <div className="flex-1 relative h-64 md:h-80">
+            <img
+              src="/images/version-control.webp"
+              alt="Version Control"
+              className="object-cover rounded-xl shadow-lg h-full w-full"
+              onError={(e) => {
+                e.target.src =
+                  "https://placehold.co/600x400/082f49/e0f2fe?text=Version+Control";
+              }}
+            />
+          </div>
+        </div>
+      </div>
+    ),
     icon: (
       <svg
         xmlns="http://www.w3.org/2000/svg"
@@ -66,9 +186,48 @@ const features = [
     ),
   },
   {
-    name: "Built-in Chat",
-    description:
-      "Discuss code changes without leaving the editor. Share code snippets and ideas in context.",
+    title: "Built-in Chat",
+    value: "chat",
+    content: (
+      <div className="w-full overflow-hidden relative h-full rounded-2xl p-10 text-xl md:text-4xl font-bold text-white bg-gradient-to-r from-blue-500 to-purple-600">
+        <div className="flex flex-col md:flex-row gap-8 items-start">
+          <div className="flex-1">
+            <h3 className="text-xl md:text-3xl font-bold mb-4">
+              Built-in Chat
+            </h3>
+            <p className="text-base md:text-lg font-normal opacity-80 mb-8">
+              Discuss code changes without leaving the editor. Share code
+              snippets and ideas in context with your team members in real-time.
+            </p>
+            <div className="flex items-center text-sm text-blue-300 hover:text-blue-200 transition cursor-pointer">
+              Learn more
+              <svg
+                className="ml-1 h-4 w-4"
+                viewBox="0 0 20 20"
+                fill="currentColor"
+              >
+                <path
+                  fillRule="evenodd"
+                  d="M12.293 5.293a1 1 0 011.414 0l4 4a1 1 0 010 1.414l-4 4a1 1 0 01-1.414-1.414L14.586 11H3a1 1 0 110-2h11.586l-2.293-2.293a1 1 0 010-1.414z"
+                  clipRule="evenodd"
+                />
+              </svg>
+            </div>
+          </div>
+          <div className="flex-1 relative h-64 md:h-80">
+            <img
+              src="/images/chat-demo.webp"
+              alt="Built-in Chat"
+              className="object-cover rounded-xl shadow-lg h-full w-full"
+              onError={(e) => {
+                e.target.src =
+                  "https://placehold.co/600x400/082f49/e0f2fe?text=Built-in+Chat";
+              }}
+            />
+          </div>
+        </div>
+      </div>
+    ),
     icon: (
       <svg
         xmlns="http://www.w3.org/2000/svg"
@@ -81,15 +240,55 @@ const features = [
         <path
           strokeLinecap="round"
           strokeLinejoin="round"
-          d="M7.5 8.25h9m-9 3H12m-9.75 1.51c0 1.6 1.123 2.994 2.707 3.227 1.129.166 2.27.293 3.423.379.35.026.67.21.865.501L12 21l2.755-4.133a1.14 1.14 0 01.865-.501 48.172 48.172 0 003.423-.379c1.584-.233 2.707-1.626 2.707-3.228V6.741c0-1.602-1.123-2.995-2.707-3.228A48.394 48.394 0 0012 3c-2.392 0-4.744.175-7.043.513C3.373 3.746 2.25 5.14 2.25 6.741v6.018z"
+          d="M7.5 8.25h9m-9 3H12m-9.75 1.51c0 1.6 1.123 2.994 2.707 3.227 1.129.166 2.27.293 3.423.379.35.026.67.21.865.501L12 21l2.755-4.133a1.14 1.14 0 01.865-.501 48.172 48.172 0 003.423-.379c1.584-.233 2.707-1.626 2.707-3.228V6.741c0-1.602-1.123-2.995-2.707-3.228A48.394 48.394 0 0012 3c-2.392 0-4.744.175-7.043.513C3.373 3.746 2.25 5.14 2.25 6"
         />
       </svg>
     ),
   },
   {
-    name: "Smart Permissions",
-    description:
-      "Control who can view and edit your code with granular permission management.",
+    title: "Security",
+    value: "security",
+    content: (
+      <div className="w-full overflow-hidden relative h-full rounded-2xl p-10 text-xl md:text-4xl font-bold text-white bg-gradient-to-r from-blue-500 to-purple-600">
+        <div className="flex flex-col md:flex-row gap-8 items-start">
+          <div className="flex-1">
+            <h3 className="text-xl md:text-3xl font-bold mb-4">
+              Enterprise-Grade Security
+            </h3>
+            <p className="text-base md:text-lg font-normal opacity-80 mb-8">
+              Keep your code secure with end-to-end encryption, role-based
+              access controls, and audit logs. Your intellectual property stays
+              protected.
+            </p>
+            <div className="flex items-center text-sm text-blue-300 hover:text-blue-200 transition cursor-pointer">
+              Learn more
+              <svg
+                className="ml-1 h-4 w-4"
+                viewBox="0 0 20 20"
+                fill="currentColor"
+              >
+                <path
+                  fillRule="evenodd"
+                  d="M12.293 5.293a1 1 0 011.414 0l4 4a1 1 0 010 1.414l-4 4a1 1 0 01-1.414-1.414L14.586 11H3a1 1 0 110-2h11.586l-2.293-2.293a1 1 0 010-1.414z"
+                  clipRule="evenodd"
+                />
+              </svg>
+            </div>
+          </div>
+          <div className="flex-1 relative h-64 md:h-80">
+            <img
+              src="/images/security.webp"
+              alt="Security Features"
+              className="object-cover rounded-xl shadow-lg h-full w-full"
+              onError={(e) => {
+                e.target.src =
+                  "https://placehold.co/600x400/082f49/e0f2fe?text=Security";
+              }}
+            />
+          </div>
+        </div>
+      </div>
+    ),
     icon: (
       <svg
         xmlns="http://www.w3.org/2000/svg"
@@ -107,84 +306,38 @@ const features = [
       </svg>
     ),
   },
-  {
-    name: "Project Organization",
-    description:
-      "Organize your work with folders and projects. Find what you need with powerful search.",
-    icon: (
-      <svg
-        xmlns="http://www.w3.org/2000/svg"
-        fill="none"
-        viewBox="0 0 24 24"
-        strokeWidth={1.5}
-        stroke="currentColor"
-        className="w-6 h-6"
-      >
-        <path
-          strokeLinecap="round"
-          strokeLinejoin="round"
-          d="M2.25 12.75V12A2.25 2.25 0 014.5 9.75h15A2.25 2.25 0 0121.75 12v.75m-8.69-6.44l-2.12-2.12a1.5 1.5 0 00-1.061-.44H4.5A2.25 2.25 0 002.25 6v12a2.25 2.25 0 002.25 2.25h15A2.25 2.25 0 0021.75 18V9a2.25 2.25 0 00-2.25-2.25h-5.379a1.5 1.5 0 01-1.06-.44z"
-        />
-      </svg>
-    ),
-  },
 ];
 
 export function FeaturesSection() {
   return (
     <div id="features" className="py-24 sm:py-32 relative">
       <Container>
-        <div className="mx-auto max-w-2xl lg:text-center">
-          <p className="mt-2 text-3xl font-bold tracking-tight text-white sm:text-4xl">
+        <div className="mx-auto max-w-2xl lg:text-center mb-16">
+          <motion.p
+            className="mt-2 text-3xl font-bold tracking-tight text-white sm:text-4xl"
+            initial={{ opacity: 0, y: 20 }}
+            whileInView={{ opacity: 1, y: 0 }}
+            viewport={{ once: true }}
+            transition={{ duration: 0.5 }}
+          >
             Everything you need for collaborative coding
-          </p>
+          </motion.p>
         </div>
-        <div className="mx-auto mt-16 grid max-w-2xl grid-cols-1 gap-6 sm:mt-20 lg:mt-24 lg:max-w-7xl lg:grid-cols-3">
-          {features.map((feature, index) => (
-            <motion.div
-              key={feature.name}
-              className="flex flex-col justify-between rounded-2xl bg-slate-800 p-6 shadow-md shadow-slate-900/5 ring-1 ring-slate-700 h-full"
-              initial={{ opacity: 0, y: 20 }}
-              whileInView={{ opacity: 1, y: 0 }}
-              viewport={{ once: true }}
-              transition={{ duration: 0.5, delay: index * 0.1 }}
-            >
-              <div>
-                <div className="flex h-12 w-12 items-center justify-center rounded-lg bg-primary-900 mb-6">
-                  <span className="text-primary-400 text-white text-xl">
-                    {feature.icon}
-                  </span>
-                </div>
-                <h3 className="text-xl font-semibold leading-7 text-white mb-3">
-                  {feature.name}
-                </h3>
-                <p className="text-base leading-7 text-slate-300">
-                  {feature.description}
-                </p>
-              </div>
 
-              <div className="mt-6 pt-4 border-t border-slate-700/50">
-                <a
-                  href="#learn-more"
-                  className="text-sm font-medium text-primary-400 text-blue-50 flex items-center hover:text-primary-300 hover:text-blue-300 transition-colors"
-                >
-                  Learn more
-                  <svg
-                    className="ml-1 h-4 w-4"
-                    viewBox="0 0 20 20"
-                    fill="currentColor"
-                  >
-                    <path
-                      fillRule="evenodd"
-                      d="M12.293 5.293a1 1 0 011.414 0l4 4a1 1 0 010 1.414l-4 4a1 1 0 01-1.414-1.414L14.586 11H3a1 1 0 110-2h11.586l-2.293-2.293a1 1 0 010-1.414z"
-                      clipRule="evenodd"
-                    />
-                  </svg>
-                </a>
-              </div>
-            </motion.div>
-          ))}
-        </div>
+        <motion.div
+          initial={{ opacity: 0 }}
+          whileInView={{ opacity: 1 }}
+          viewport={{ once: true }}
+          transition={{ duration: 0.5 }}
+          className="h-[30rem] md:h-[40rem] [perspective:1000px] relative flex flex-col max-w-5xl mx-auto w-full"
+        >
+          <Tabs
+            tabs={features}
+            activeTabClassName="bg-gradient-to-r from-blue-500 to-purple-600"
+            tabClassName="text-white hover:text-blue-300 transition"
+            containerClassName="justify-center"
+          />
+        </motion.div>
       </Container>
     </div>
   );
