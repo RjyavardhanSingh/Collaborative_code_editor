@@ -96,14 +96,20 @@ export class MonacoShareDBBinding {
           if (content !== editorContent) {
             this.isUpdatingMonaco = true;
 
+            // IMPORTANT: Save all cursors and selections before updating content
+            const cursors = this.saveAllCursors();
+
             // Use Monaco's edit API to update the content
             this.editor.executeEdits("sharedb", [
               {
                 range: this.model.getFullModelRange(),
                 text: content,
-                forceMoveMarkers: true,
+                forceMoveMarkers: true, // Try to preserve markers
               },
             ]);
+
+            // IMPORTANT: Restore all cursors after updating content
+            this.restoreAllCursors(cursors);
 
             this.isUpdatingMonaco = false;
           }
@@ -114,6 +120,57 @@ export class MonacoShareDBBinding {
     };
 
     this.shareDBDoc.on("op", this.opHandler);
+  }
+
+  // New method to save cursor positions
+  saveAllCursors() {
+    // Find all cursor decorations (we need to look in the DOM)
+    const cursors = [];
+    const cursorElements = document.querySelectorAll(
+      '[class^="remote-cursor-"]'
+    );
+
+    cursorElements.forEach((element) => {
+      // Extract user ID from class name
+      const classNames = Array.from(element.classList);
+      const cursorClass = classNames.find((c) =>
+        c.startsWith("remote-cursor-")
+      );
+
+      if (cursorClass) {
+        const userId = cursorClass.replace("remote-cursor-", "");
+
+        // Find line and column from the element's position
+        // This is a bit hacky but works
+        const lineElement = element.closest(".view-line");
+        if (lineElement) {
+          // Get line number and selection from data attributes
+          const lineNumber = parseInt(
+            lineElement.getAttribute("data-line-number") || "0"
+          );
+
+          cursors.push({
+            userId,
+            lineNumber,
+            // We can't easily get the exact column, so we'll just preserve the line
+          });
+        }
+      }
+    });
+
+    return cursors;
+  }
+
+  // New method to restore cursor positions
+  restoreAllCursors(cursors) {
+    // We can't directly restore cursors here
+    // Instead, we'll dispatch a custom event that the cursor tracking system can listen for
+    if (cursors.length > 0) {
+      const event = new CustomEvent("restore-remote-cursors", {
+        detail: { cursors },
+      });
+      document.dispatchEvent(event);
+    }
   }
 
   destroy() {

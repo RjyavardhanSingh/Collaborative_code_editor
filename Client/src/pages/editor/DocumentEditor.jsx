@@ -42,17 +42,30 @@ const addRemoteCursorStyle = (clientId, color, name) => {
       background-color: ${color}20 !important;
     }
     
+    .remote-cursor-${clientId}::before {
+      content: '';
+      position: absolute !important;
+      left: -2px !important;
+      top: 0 !important;
+      width: 2px !important;
+      height: 100% !important;
+      background-color: ${color} !important;
+      z-index: 1000 !important;
+    }
+    
     .remote-cursor-${clientId}::after {
-      content: "${name}";
-      position: absolute;
-      left: -2px;
-      top: -18px;
-      background-color: ${color};
-      color: white;
-      font-size: 10px;
-      padding: 1px 4px;
-      border-radius: 2px;
-      white-space: nowrap;
+      content: '${name}';
+      position: absolute !important;
+      left: -2px !important;
+      top: -20px !important;
+      background-color: ${color} !important;
+      color: white !important;
+      font-size: 10px !important;
+      padding: 2px 6px !important;
+      border-radius: 3px !important;
+      white-space: nowrap !important;
+      pointer-events: none !important;
+      z-index: 1001 !important;
     }
   `;
 
@@ -179,10 +192,30 @@ export default function DocumentEditor() {
 
     socketRef.current.on("user-joined", ({ user, users }) => {
       setActiveUsers(users);
+
+      // Add this code to update connectedUsers map
+      const updatedUsers = new Map(connectedUsers);
+      users.forEach((u) => {
+        if (!updatedUsers.has(u._id) && u._id !== currentuser?._id) {
+          updatedUsers.set(u._id, {
+            id: u._id,
+            username: u.username,
+            color: getRandomColor(u._id),
+          });
+        }
+      });
+      setConnectedUsers(updatedUsers);
     });
 
     socketRef.current.on("user-left", ({ userId, users }) => {
       setActiveUsers(users);
+
+      // Add this code to remove disconnected user
+      setConnectedUsers((prev) => {
+        const updated = new Map(prev);
+        updated.delete(userId);
+        return updated;
+      });
     });
 
     return () => {
@@ -272,6 +305,9 @@ export default function DocumentEditor() {
 
       // Initialize auto-save
       initializeAutoSave(shareDoc);
+
+      // Add this line to initialize cursor tracking
+      setupCursorTracking(editor);
 
       isCollaborativeInitialized.current = true;
       console.log("🎉 Collaborative editor fully initialized");
@@ -663,6 +699,37 @@ export default function DocumentEditor() {
       return;
     }
 
+    // Map to store cursor decorations by user ID
+    const userCursors = new Map();
+
+    // Add this listener for cursor restoration events
+    const cursorRestoreHandler = (event) => {
+      const { cursors } = event.detail;
+
+      cursors.forEach((cursor) => {
+        const existingCursor = userCursors.get(cursor.userId);
+        if (existingCursor) {
+          // Restore the cursor at the saved line
+          const position = existingCursor.position;
+          if (position && cursor.lineNumber) {
+            // Update line number but keep column position
+            position.selection.startLineNumber = cursor.lineNumber;
+            position.selection.endLineNumber = cursor.lineNumber;
+
+            // Re-apply the cursor
+            updateUserCursor(
+              cursor.userId,
+              existingCursor.username,
+              existingCursor.color,
+              position
+            );
+          }
+        }
+      });
+    };
+
+    document.addEventListener("restore-remote-cursors", cursorRestoreHandler);
+
     // Track and send cursor position
     const sendCursorPosition = () => {
       try {
@@ -702,17 +769,61 @@ export default function DocumentEditor() {
 
     // Listen for remote cursor updates
     socketRef.current.on("cursor-position", (data) => {
-      if (data.userId === currentuser?._id) return;
+      if (data.userId === currentuser?._id) return; // Skip our own cursor
 
-      updateRemoteCursor(
-        data.userId,
-        data.position,
-        getRandomColor(data.userId)
-      );
+      try {
+        const userId = data.userId;
+        const username = data.username || "User";
+        const color = getRandomColor(userId);
+        const position = data.position;
+
+        // Update the cursor for this specific user
+        updateUserCursor(userId, username, color, position);
+      } catch (err) {
+        console.error("Error updating remote cursor:", err);
+      }
     });
 
-    // Implementation of updateRemoteCursor and rest of the function...
-    // (Keep your existing code for rendering cursor decorations)
+    // Function to update a specific user's cursor
+    const updateUserCursor = (userId, username, color, position) => {
+      // Get existing cursor data or create new
+      const cursorData = userCursors.get(userId) || { decorations: [] };
+
+      // Create the style for this cursor if needed
+      addRemoteCursorStyle(userId, color, username);
+
+      // Create decoration for this user's cursor
+      const newDecorations = [
+        {
+          range: new monaco.Range(
+            position.selection.startLineNumber,
+            position.selection.startColumn,
+            position.selection.endLineNumber,
+            position.selection.endColumn
+          ),
+          options: {
+            className: `remote-cursor-${userId}`,
+            stickiness:
+              monaco.editor.TrackedRangeStickiness.NeverGrowsWhenTypingAtEdges,
+            hoverMessage: { value: `${username} is here` },
+          },
+        },
+      ];
+
+      // Apply the decorations for just this user
+      const appliedDecorations = editor.deltaDecorations(
+        cursorData.decorations,
+        newDecorations
+      );
+
+      // Store the updated decoration IDs for this user
+      userCursors.set(userId, {
+        decorations: appliedDecorations,
+        username,
+        color,
+        position,
+      });
+    };
 
     // Monitor cursor movement
     const cursorDisposable = editor.onDidChangeCursorPosition(
@@ -724,17 +835,30 @@ export default function DocumentEditor() {
 
     // Store for cleanup
     cursorTrackingRef.current = {
+      userCursors,
       cursorDisposable,
       selectionDisposable,
       cleanup: () => {
         cursorDisposable.dispose();
         selectionDisposable.dispose();
+
         if (socketRef.current) {
           socketRef.current.off("cursor-position");
         }
-        if (editor && !editor.isDisposed() && editor.getModel()) {
-          editor.deltaDecorations(cursorDecorations, []);
+
+        // Remove the event listener
+        document.removeEventListener(
+          "restore-remote-cursors",
+          cursorRestoreHandler
+        );
+
+        // Clean up all cursor decorations
+        for (const { decorations } of userCursors.values()) {
+          if (decorations.length && editor && !editor.isDisposed()) {
+            editor.deltaDecorations(decorations, []);
+          }
         }
+
         if (cursorUpdateTimeout) {
           clearTimeout(cursorUpdateTimeout);
         }
