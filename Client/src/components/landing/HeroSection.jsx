@@ -4,29 +4,44 @@ import Editor from "@monaco-editor/react";
 
 export function HeroSection() {
   const codeSnippet = `import React, { useState, useEffect } from 'react';
+import { useCollaborators } from './hooks/useCollaborators';
 
-// Collaborative Code Editor - Live Demo
-function DevUnityEditor() {
-  const [collaborators, setCollaborators] = useState([
-    { id: 1, name: "Sarah", color: "#3b82f6" },
-    { id: 2, name: "Alex", color: "#8b5cf6" },
-  ]);
+// DevUnity Collaborative Editor Example
+function CollaborativeEditor() {
+  const [code, setCode] = useState('// Start coding here...');
+  const { users, cursors, changes } = useCollaborators();
   
+  // Synchronize changes across all connected editors
+  useEffect(() => {
+    if (changes.length > 0) {
+      // Apply remote changes to local editor
+      applyChanges(changes);
+    }
+  }, [changes]);
+
   return (
     <div className="editor-container">
-      <header className="flex justify-between items-center">
-        <h1 className="text-xl font-bold">Document.jsx</h1>
-        <div className="collaborators-avatars">
-          {/* Real-time collaboration happening here */}
+      <header className="editor-header">
+        <h2>Document.jsx</h2>
+        <div className="collaborators">
+          {users.map(user => (
+            <Avatar key={user.id} name={user.name} color={user.color} />
+          ))}
         </div>
       </header>
       
-      {/* Your code goes here... */}
+      <Editor 
+        value={code}
+        onChange={setCode}
+        language="javascript"
+        theme="vs-dark"
+        options={{ minimap: { enabled: true } }}
+      />
     </div>
   );
 }
 
-export default DevUnityEditor;`;
+export default CollaborativeEditor;`;
 
   return (
     <div className="relative overflow-hidden pt-20 sm:pt-24 lg:pt-32 pb-16">
@@ -95,44 +110,74 @@ export default DevUnityEditor;`;
                   <div className="w-3 h-3 rounded-full bg-emerald-500"></div>
                 </div>
                 <div className="flex-1 text-center text-xs text-slate-400 font-mono">
-                  DevUnityEditor.jsx — Collaborative Editing
+                  CollaborativeEditor.jsx — Real-time Editing
                 </div>
+
+                {/* Active collaborators with tooltips */}
                 <div className="flex items-center space-x-3">
                   <motion.div
                     className="flex -space-x-2"
-                    initial={{ x: 20, opacity: 0 }}
-                    animate={{ x: 0, opacity: 1 }}
-                    transition={{ delay: 1.2, duration: 0.5 }}
+                    initial={{ opacity: 0 }}
+                    animate={{ opacity: 1 }}
+                    transition={{ delay: 0.8, duration: 0.5 }}
                   >
-                    <div className="w-6 h-6 rounded-full bg-blue-500 flex items-center justify-center text-xs text-white font-medium border-2 border-slate-800">
-                      S
-                    </div>
-                    <div className="w-6 h-6 rounded-full bg-purple-500 flex items-center justify-center text-xs text-white font-medium border-2 border-slate-800">
-                      A
-                    </div>
-                    <div className="w-6 h-6 rounded-full bg-slate-700 flex items-center justify-center text-xs text-white font-medium border-2 border-slate-800">
-                      +2
-                    </div>
-                  </motion.div>
-                  <div className="text-slate-400">
-                    <svg
-                      className="h-4 w-4"
-                      fill="none"
-                      viewBox="0 0 24 24"
-                      stroke="currentColor"
+                    {/* First user with tooltip */}
+                    <motion.div
+                      className="relative"
+                      whileHover={{ y: -3 }}
+                      transition={{ type: "spring", stiffness: 300 }}
                     >
-                      <path
-                        strokeLinecap="round"
-                        strokeLinejoin="round"
-                        strokeWidth={1.5}
-                        d="M4 6h16M4 12h16M4 18h16"
-                      />
-                    </svg>
-                  </div>
+                      <div className="w-6 h-6 rounded-full bg-blue-500 flex items-center justify-center text-xs text-white font-medium border-2 border-slate-800">
+                        S
+                      </div>
+                      <motion.div
+                        className="absolute -bottom-8 left-50 transform -translate-x-1/2 bg-slate-700 px-2 py-1 rounded text-xs whitespace-nowrap"
+                        initial={{ opacity: 0, scale: 0.5 }}
+                        whileHover={{ opacity: 1, scale: 1 }}
+                      >
+                        Sarah (editing line 12)
+                      </motion.div>
+                    </motion.div>
+
+                    {/* Second user with tooltip */}
+                    <motion.div
+                      className="relative"
+                      whileHover={{ y: -3 }}
+                      transition={{ type: "spring", stiffness: 300 }}
+                    >
+                      <div className="w-6 h-6 rounded-full bg-purple-500 flex items-center justify-center text-xs text-white font-medium border-2 border-slate-800">
+                        A
+                      </div>
+                      <motion.div
+                        className="absolute -bottom-8 left-50 transform -translate-x-1/2 bg-slate-700 px-2 py-1 rounded text-xs whitespace-nowrap"
+                        initial={{ opacity: 0, scale: 0.5 }}
+                        whileHover={{ opacity: 1, scale: 1 }}
+                      >
+                        Alex (viewing)
+                      </motion.div>
+                    </motion.div>
+
+                    <motion.div
+                      className="relative"
+                      whileHover={{ y: -3 }}
+                      transition={{ type: "spring", stiffness: 300 }}
+                    >
+                      <div className="w-6 h-6 rounded-full bg-green-500 flex items-center justify-center text-xs text-white font-medium border-2 border-slate-800">
+                        J
+                      </div>
+                      <motion.div
+                        className="absolute -bottom-8 left-50 transform -translate-x-1/2 bg-slate-700 px-2 py-1 rounded text-xs whitespace-nowrap"
+                        initial={{ opacity: 0, scale: 0.5 }}
+                        whileHover={{ opacity: 1, scale: 1 }}
+                      >
+                        James (idle)
+                      </motion.div>
+                    </motion.div>
+                  </motion.div>
                 </div>
               </div>
 
-              {/* Code editor */}
+              {/* Code editor with overlaid animations */}
               <div className="relative">
                 <Editor
                   height="380px"
@@ -141,10 +186,9 @@ export default DevUnityEditor;`;
                   theme="vs-dark"
                   options={{
                     readOnly: true,
-                    minimap: { enabled: false },
+                    minimap: { enabled: true },
                     scrollBeyondLastLine: false,
                     fontSize: 14,
-                    renderLineHighlight: "all",
                     lineNumbers: "on",
                     scrollbar: {
                       vertical: "hidden",
@@ -153,60 +197,117 @@ export default DevUnityEditor;`;
                   }}
                 />
 
-                {/* Animated cursors to simulate collaboration */}
+                {/* User 1 cursor - Blue */}
                 <motion.div
-                  className="absolute top-[145px] left-[280px] h-[18px] w-[1px] bg-blue-500"
+                  className="absolute top-[147px] h-[18px] w-[2px] bg-blue-500"
+                  initial={{ left: 280 }}
                   animate={{
-                    opacity: [1, 0.7, 1],
-                    x: [0, 3, 0],
+                    left: [280, 310, 310, 280],
+                    opacity: [1, 1, 1, 1],
                   }}
-                  transition={{
-                    duration: 1.5,
-                    repeat: Infinity,
-                    repeatType: "reverse",
-                  }}
-                />
-                <motion.div
-                  className="absolute top-[235px] left-[180px] h-[18px] w-[1px] bg-purple-500"
-                  initial={{ opacity: 0 }}
-                  animate={{
-                    opacity: [0, 1, 0.7, 1],
-                    x: [0, 5, 0],
-                  }}
-                  transition={{
-                    duration: 2,
-                    delay: 0.8,
-                    repeat: Infinity,
-                    repeatType: "reverse",
-                  }}
-                />
-
-                {/* Selection effect */}
-                <motion.div
-                  className="absolute top-[200px] left-[120px] h-[18px] w-0 bg-blue-500/30"
-                  initial={{ width: 0 }}
-                  animate={{ width: [0, 130, 130, 0] }}
                   transition={{
                     duration: 4,
-                    times: [0, 0.4, 0.8, 1],
+                    times: [0, 0.3, 0.7, 1],
                     repeat: Infinity,
-                    repeatDelay: 3,
+                    repeatType: "loop",
+                    ease: "easeInOut",
+                  }}
+                >
+                  {/* Cursor label */}
+                  <div className="absolute -top-5 -left-10 text-xs bg-blue-500 px-1.5 py-0.5 rounded text-white whitespace-nowrap">
+                    Sarah
+                  </div>
+                </motion.div>
+
+                {/* User 2 cursor - Purple */}
+                <motion.div
+                  className="absolute top-[235px] h-[18px] w-[2px] bg-purple-500"
+                  initial={{ left: 180 }}
+                  animate={{
+                    left: [180, 220, 220, 180],
+                    opacity: [1, 1, 1, 1],
+                  }}
+                  transition={{
+                    duration: 5,
+                    times: [0, 0.4, 0.6, 1],
+                    repeat: Infinity,
+                    repeatType: "loop",
+                    delay: 1,
+                    ease: "easeInOut",
+                  }}
+                >
+                  {/* Cursor label */}
+                  <div className="absolute -top-5 -left-10 text-xs bg-purple-500 px-1.5 py-0.5 rounded text-white whitespace-nowrap">
+                    Alex
+                  </div>
+                </motion.div>
+
+                {/* Blue selection effect */}
+                <motion.div
+                  className="absolute top-[147px] left-[280px] h-[18px] bg-blue-500/30"
+                  initial={{ width: 0 }}
+                  animate={{
+                    width: [0, 130, 130, 0],
+                    opacity: [0.3, 0.3, 0.3, 0],
+                  }}
+                  transition={{
+                    duration: 4,
+                    times: [0, 0.3, 0.7, 1],
+                    repeat: Infinity,
+                    repeatType: "loop",
+                    ease: "easeInOut",
                   }}
                 />
 
                 {/* Purple selection effect */}
                 <motion.div
-                  className="absolute top-[288px] left-[150px] h-[18px] w-0 bg-purple-500/30"
+                  className="absolute top-[235px] left-[180px] h-[18px] bg-purple-500/30"
                   initial={{ width: 0 }}
-                  animate={{ width: [0, 80, 80, 0] }}
+                  animate={{
+                    width: [0, 80, 80, 0],
+                    opacity: [0.3, 0.3, 0.3, 0],
+                  }}
                   transition={{
-                    duration: 3,
-                    times: [0, 0.3, 0.7, 1],
+                    duration: 5,
+                    times: [0, 0.4, 0.6, 1],
                     repeat: Infinity,
-                    repeatDelay: 4,
-                    delay: 2,
+                    repeatType: "loop",
+                    delay: 1,
+                    ease: "easeInOut",
                   }}
                 />
+
+                {/* Typing indicator */}
+                <motion.div
+                  className="absolute top-[104px] left-[75px] px-2 py-0.5 bg-blue-500/20 border-l-2 border-blue-500 text-blue-200 text-xs rounded-r"
+                  initial={{ opacity: 0 }}
+                  animate={{ opacity: [0, 1, 1, 0] }}
+                  transition={{
+                    duration: 2,
+                    times: [0, 0.1, 0.9, 1],
+                    repeat: Infinity,
+                    repeatDelay: 3,
+                  }}
+                >
+                  Sarah is typing...
+                </motion.div>
+
+                {/* Comment indicator */}
+                <motion.div
+                  className="absolute top-[193px] right-[20px] px-2 py-1 bg-purple-500/10 border border-purple-500/30 text-purple-200 text-xs rounded-md flex items-center"
+                  initial={{ x: 50, opacity: 0 }}
+                  animate={{ x: 0, opacity: [0, 1, 1, 0] }}
+                  transition={{
+                    duration: 4,
+                    times: [0, 0.1, 0.9, 1],
+                    repeat: Infinity,
+                    repeatDelay: 5,
+                    delay: 2,
+                  }}
+                >
+                  <div className="w-2 h-2 rounded-full bg-purple-500 mr-1"></div>
+                  Alex added a comment
+                </motion.div>
               </div>
             </div>
           </motion.div>

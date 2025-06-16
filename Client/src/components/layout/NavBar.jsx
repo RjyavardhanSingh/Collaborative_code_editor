@@ -9,7 +9,7 @@ import {
   FiMail,
   FiChevronLeft,
   FiBell,
-  FiHome 
+  FiHome,
 } from "react-icons/fi";
 import { useAuth } from "../../context/AuthProvider";
 import api from "../../lib/api";
@@ -26,7 +26,6 @@ export default function Navbar({ children, showBackButton, title, actions }) {
   const [invitationCount, setInvitationCount] = useState(0);
   const userMenuRef = useRef(null);
 
- 
   const isLandingPage = location.pathname === "/";
 
   useEffect(() => {
@@ -66,51 +65,54 @@ export default function Navbar({ children, showBackButton, title, actions }) {
 
   if (isLandingPage && !currentuser) {
     return (
-      <header className="bg-transparent py-4 px-6 relative z-10">
+      <header className="bg-transparent py-5 px-6 relative z-20">
         <div className="container mx-auto flex items-center justify-between">
           <div className="flex items-center">
-            <img src={logo} alt="DevUnity" className="h-8 mr-2" />
-            <h1 className="text-white text-xl font-bold">DevUnity</h1>
+            <img src={logo} alt="DevUnity" className="h-8 mr-3" />
+            <h1 className="text-xl font-bold bg-gradient-to-r from-white to-blue-200 bg-clip-text text-transparent">
+              DevUnity
+            </h1>
           </div>
 
-          <div className="hidden md:flex items-center space-x-8">
+          {/* Desktop navigation */}
+          <div className="hidden md:flex items-center space-x-10">
             <a
               href="#features"
-              className="text-white hover:text-blue-300 transition"
+              className="text-slate-300 hover:text-white transition-colors duration-300 text-sm font-medium"
             >
               Features
             </a>
             <a
               href="#testimonials"
-              className="text-white hover:text-blue-300 transition"
+              className="text-slate-300 hover:text-white transition-colors duration-300 text-sm font-medium"
             >
               Testimonials
             </a>
             <a
               href="#pricing"
-              className="text-white hover:text-blue-300 transition"
+              className="text-slate-300 hover:text-white transition-colors duration-300 text-sm font-medium"
             >
               Pricing
             </a>
           </div>
 
-          <div className="flex items-center space-x-4">
+          <div className="flex items-center space-x-5">
             <Link
               to="/login"
-              className="text-white hover:text-blue-300 transition"
+              className="text-slate-200 hover:text-white transition-colors duration-300 font-medium"
             >
-              Login
+              Log In
             </Link>
             <Link
               to="/register"
-              className="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-md transition"
+              className="bg-gradient-to-r from-blue-500 to-purple-600 hover:from-blue-600 hover:to-purple-700 text-white px-5 py-2.5 rounded-md transition-all duration-300 shadow-lg shadow-blue-500/20 font-medium"
             >
               Get Started
             </Link>
           </div>
 
           <button
-            className="md:hidden text-white p-2"
+            className="md:hidden p-2 rounded-md text-white bg-slate-800/30 backdrop-blur-sm border border-slate-700/30"
             onClick={() => setIsMobileMenuOpen(!isMobileMenuOpen)}
           >
             {isMobileMenuOpen ? <FiX size={24} /> : <FiMenu size={24} />}
@@ -118,35 +120,35 @@ export default function Navbar({ children, showBackButton, title, actions }) {
         </div>
 
         {isMobileMenuOpen && (
-          <div className="md:hidden absolute top-full left-0 right-0 bg-slate-800 py-4 px-6 flex flex-col space-y-4 border-t border-slate-700">
+          <div className="md:hidden absolute top-full left-0 right-0 mt-2 mx-4 rounded-lg bg-slate-800/80 backdrop-blur-md py-4 px-6 flex flex-col space-y-4 border border-slate-700/50 shadow-xl">
             <a
               href="#features"
-              className="text-white hover:text-blue-300 transition"
+              className="text-white hover:text-blue-300 transition py-2 border-b border-slate-700/50"
             >
               Features
             </a>
             <a
               href="#testimonials"
-              className="text-white hover:text-blue-300 transition"
+              className="text-white hover:text-blue-300 transition py-2 border-b border-slate-700/50"
             >
               Testimonials
             </a>
             <a
               href="#pricing"
-              className="text-white hover:text-blue-300 transition"
+              className="text-white hover:text-blue-300 transition py-2 border-b border-slate-700/50"
             >
               Pricing
             </a>
-            <div className="border-t border-slate-700 pt-4 flex flex-col space-y-4">
+            <div className="pt-2 flex flex-col space-y-4">
               <Link
                 to="/login"
-                className="text-white hover:text-blue-300 transition"
+                className="text-white hover:text-blue-300 transition px-4 py-2"
               >
-                Login
+                Log In
               </Link>
               <Link
                 to="/register"
-                className="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-md transition text-center"
+                className="bg-gradient-to-r from-blue-500 to-purple-600 hover:from-blue-600 hover:to-purple-700 text-white px-4 py-3 rounded-md transition text-center font-medium shadow-lg shadow-blue-500/20"
               >
                 Get Started
               </Link>
