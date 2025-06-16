@@ -7,7 +7,7 @@ const features = [
     title: "Real-time Collaboration",
     value: "collaboration",
     content: (
-      <div className="w-full overflow-hidden relative h-full rounded-2xl p-10 text-xl md:text-4xl font-bold text-white bg-gradient-to-r from-blue-500 to-purple-600">
+      <div className="w-full overflow-hidden relative h-full rounded-2xl p-10 text-xl md:text-4xl font-bold text-white bg-gradient-to-r from-blue-900/80 to-purple-900/80 backdrop-blur-sm border border-white/10">
         <div className="flex flex-col md:flex-row gap-8 items-start">
           <div className="flex-1">
             <h3 className="text-xl md:text-3xl font-bold mb-4">
@@ -68,7 +68,7 @@ const features = [
     title: "Syntax Highlighting",
     value: "syntax",
     content: (
-      <div className="w-full overflow-hidden relative h-full rounded-2xl p-10 text-xl md:text-4xl font-bold text-white bg-gradient-to-r from-blue-500 to-purple-600">
+      <div className="w-full overflow-hidden relative h-full rounded-2xl p-10 text-xl md:text-4xl font-bold text-white bg-gradient-to-r from-blue-900/80 to-purple-900/80 backdrop-blur-sm border border-white/10">
         <div className="flex flex-col md:flex-row gap-8 items-start">
           <div className="flex-1">
             <h3 className="text-xl md:text-3xl font-bold mb-4">
@@ -129,7 +129,7 @@ const features = [
     title: "Version Control",
     value: "version-control",
     content: (
-      <div className="w-full overflow-hidden relative h-full rounded-2xl p-10 text-xl md:text-4xl font-bold text-white bg-gradient-to-r from-blue-500 to-purple-600">
+      <div className="w-full overflow-hidden relative h-full rounded-2xl p-10 text-xl md:text-4xl font-bold text-white bg-gradient-to-r from-blue-900/80 to-purple-900/80 backdrop-blur-sm border border-white/10">
         <div className="flex flex-col md:flex-row gap-8 items-start">
           <div className="flex-1">
             <h3 className="text-xl md:text-3xl font-bold mb-4">
@@ -189,7 +189,7 @@ const features = [
     title: "Built-in Chat",
     value: "chat",
     content: (
-      <div className="w-full overflow-hidden relative h-full rounded-2xl p-10 text-xl md:text-4xl font-bold text-white bg-gradient-to-r from-blue-500 to-purple-600">
+      <div className="w-full overflow-hidden relative h-full rounded-2xl p-10 text-xl md:text-4xl font-bold text-white bg-gradient-to-r from-blue-900/80 to-purple-900/80 backdrop-blur-sm border border-white/10">
         <div className="flex flex-col md:flex-row gap-8 items-start">
           <div className="flex-1">
             <h3 className="text-xl md:text-3xl font-bold mb-4">
@@ -249,7 +249,7 @@ const features = [
     title: "Security",
     value: "security",
     content: (
-      <div className="w-full overflow-hidden relative h-full rounded-2xl p-10 text-xl md:text-4xl font-bold text-white bg-gradient-to-r from-blue-500 to-purple-600">
+      <div className="w-full overflow-hidden relative h-full rounded-2xl p-10 text-xl md:text-4xl font-bold text-white bg-gradient-to-r from-blue-900/80 to-purple-900/80 backdrop-blur-sm border border-white/10">
         <div className="flex flex-col md:flex-row gap-8 items-start">
           <div className="flex-1">
             <h3 className="text-xl md:text-3xl font-bold mb-4">
@@ -310,7 +310,7 @@ const features = [
 
 export function FeaturesSection() {
   return (
-    <div id="features" className="py-24 sm:py-32 relative">
+    <div id="features" className="py-24 sm:py-32 pb-64 md:pb-80 relative">
       <Container>
         <div className="mx-auto max-w-2xl lg:text-center mb-16">
           <motion.p
@@ -333,11 +333,14 @@ export function FeaturesSection() {
         >
           <Tabs
             tabs={features}
-            activeTabClassName="bg-gradient-to-r from-blue-500 to-purple-600"
-            tabClassName="text-white hover:text-blue-300 transition"
+            activeTabClassName="bg-gradient-to-r from-blue-800/70 to-purple-800/70 backdrop-blur-sm"
+            tabClassName="text-white hover:text-blue-300 transition px-4"
             containerClassName="justify-center"
           />
         </motion.div>
+
+        {/* Add visual spacer element */}
+        <div className="h-24 md:h-32"></div>
       </Container>
     </div>
   );
