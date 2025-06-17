@@ -14,6 +14,17 @@ import {
   FiEye,
   FiCode,
   FiFile,
+  FiClock,
+  FiGlobe,
+  FiLock,
+  FiCodepen,
+  FiCommand,
+  FiCopy,
+  FiInfo,
+  FiCalendar,
+  FiTrendingUp,
+  FiZap,
+  FiArrowRight,
 } from "react-icons/fi";
 import api from "../../lib/api.js";
 import Navbar from "../../components/layout/NavBar";
@@ -28,6 +39,7 @@ export default function Dashboard() {
     pinnedDocuments: [],
     activityStats: null,
   });
+  const [showNewDocumentModal, setShowNewDocumentModal] = useState(false);
   const navigate = useNavigate();
 
   useEffect(() => {
@@ -173,33 +185,41 @@ export default function Dashboard() {
       key={doc._id}
       initial={{ opacity: 0 }}
       animate={{ opacity: 1 }}
-      className="bg-slate-800 border border-slate-700 rounded-lg overflow-hidden hover:border-slate-600 transition-colors"
+      className="group hover:bg-slate-700/30 transition-colors"
     >
       <div className="p-4">
         <div className="flex justify-between items-start">
-          <div>
-            <Link
-              to={`/documents/${doc._id}`}
-              className="text-blue-500 font-medium hover:text-blue-400 flex items-center gap-1"
-            >
-              <span>{doc.title}</span>
-              {doc.isPublic && (
-                <span className="text-xs bg-blue-500/20 text-blue-300 px-1.5 py-0.5 rounded-full">
-                  Public
+          <div className="flex items-start gap-3">
+            <div className="mt-1">{getLanguageIcon(doc.language)}</div>
+            <div>
+              <Link
+                to={`/documents/${doc._id}`}
+                className="text-blue-400 font-medium hover:text-blue-300 flex items-center gap-2 transition-colors"
+              >
+                <span>{doc.title}</span>
+                {doc.isPublic && (
+                  <span className="text-xs bg-blue-900/40 text-blue-300 px-2 py-0.5 rounded-full border border-blue-800/50">
+                    <FiGlobe className="inline mr-1" size={10} /> Public
+                  </span>
+                )}
+              </Link>
+              <div className="flex items-center mt-1 gap-2">
+                <span className="text-xs font-medium text-slate-400">
+                  {formatLanguage(doc.language)}
                 </span>
-              )}
-            </Link>
-            <div className="flex items-center mt-1 gap-2">
-              <span className="text-xs font-medium text-slate-400">
-                {doc.language}
-              </span>
-              <span className="text-[10px] text-slate-500">•</span>
-              <span className="text-xs text-slate-500">
-                Updated {formatDate(doc.updatedAt)}
-              </span>
+                <span className="text-[10px] text-slate-500">•</span>
+                <span className="text-xs text-slate-500 flex items-center">
+                  <FiClock className="mr-1" size={12} />{" "}
+                  {formatDate(doc.updatedAt)}
+                </span>
+              </div>
             </div>
           </div>
-          <button
+          <motion.button
+            whileHover={{
+              rotate: isPinned ? -15 : 15,
+              transition: { duration: 0.2 },
+            }}
             className={`text-slate-400 hover:text-${
               isPinned ? "yellow" : "slate"
             }-300`}
@@ -210,33 +230,48 @@ export default function Dashboard() {
             <FiStar
               className={isPinned ? "fill-yellow-400 text-yellow-400" : ""}
             />
-          </button>
+          </motion.button>
         </div>
       </div>
-      <div className="bg-slate-900/50 py-2 px-4 flex justify-between items-center border-t border-slate-700">
-        <div className="flex items-center gap-2">
-          <button
-            className="text-xs font-medium text-slate-400 hover:text-white flex items-center gap-1"
+      <div className="py-2 px-4 flex justify-between items-center border-t border-slate-700/50 bg-slate-800/30">
+        <div className="flex items-center gap-3">
+          <motion.button
+            whileHover={{ y: -2 }}
+            className="text-xs font-medium text-slate-400 hover:text-white flex items-center gap-1.5 bg-slate-700/50 hover:bg-slate-700 transition-all px-3 py-1.5 rounded-md"
             onClick={() => navigate(`/documents/${doc._id}`)}
           >
-            <FiEdit className="text-slate-500" />
+            <FiEdit className="text-blue-400" size={14} />
             Edit
-          </button>
-          <span className="text-slate-600">|</span>
-          <button
-            className="text-xs font-medium text-slate-400 hover:text-white flex items-center gap-1"
+          </motion.button>
+          <motion.button
+            whileHover={{ y: -2 }}
+            className="text-xs font-medium text-slate-400 hover:text-white flex items-center gap-1.5 bg-slate-700/50 hover:bg-slate-700 transition-all px-3 py-1.5 rounded-md"
             onClick={() => navigate(`/documents/${doc._id}/preview`)}
           >
-            <FiEye className="text-slate-500" />
+            <FiEye className="text-purple-400" size={14} />
             Preview
-          </button>
+          </motion.button>
+          <motion.button
+            whileHover={{ y: -2 }}
+            className="text-xs font-medium text-slate-400 hover:text-white flex items-center gap-1.5 bg-slate-700/50 hover:bg-slate-700 transition-all px-3 py-1.5 rounded-md"
+            onClick={() => {
+              navigator.clipboard.writeText(
+                `${window.location.origin}/documents/${doc._id}`
+              );
+              // Show toast notification or feedback
+            }}
+          >
+            <FiCopy className="text-slate-400" size={14} />
+            Copy Link
+          </motion.button>
         </div>
-        <button
-          className="text-xs font-medium text-slate-400 hover:text-white"
+        <motion.button
+          whileHover={{ rotate: 15 }}
+          className="text-xs font-medium text-slate-400 hover:text-white bg-slate-700/50 hover:bg-slate-700 p-2 rounded-md transition-all"
           onClick={() => console.log(`Share document ${doc._id}`)}
         >
-          <FiUsers />
-        </button>
+          <FiUsers size={14} />
+        </motion.button>
       </div>
     </motion.div>
   );
@@ -288,17 +323,93 @@ export default function Dashboard() {
   );
   if (isLoading) {
     return (
-      <div className="min-h-screen bg-slate-900 flex items-center justify-center">
-        <div className="flex flex-col items-center">
-          <div className="w-12 h-12 border-4 border-blue-500 border-t-transparent rounded-full animate-spin"></div>
-          <p className="mt-4 text-slate-300">Loading your workspace...</p>
+      <div className="min-h-screen bg-black flex items-center justify-center relative overflow-hidden">
+        {/* Background gradient effects - matching landing page */}
+        <div
+          className="fixed inset-0 w-full h-full overflow-hidden pointer-events-none"
+          style={{
+            background:
+              "radial-gradient(circle at 50% 50%, rgba(59, 130, 246, 0.15), rgba(0, 0, 0, 0) 70%), radial-gradient(circle at 80% 20%, rgba(139, 92, 246, 0.15), rgba(0, 0, 0, 0) 70%)",
+            zIndex: 0,
+          }}
+          aria-hidden="true"
+        ></div>
+
+        <div
+          className="fixed inset-x-0 top-0 transform-gpu overflow-hidden blur-3xl z-0 pointer-events-none opacity-40"
+          aria-hidden="true"
+        >
+          <div
+            className="relative left-[calc(50%-11rem)] aspect-[1155/678] w-[36.125rem] -translate-x-1/2 rotate-[30deg] bg-gradient-to-tr from-blue-600 to-purple-600 sm:left-[calc(50%-30rem)] sm:w-[72.1875rem]"
+            style={{
+              clipPath:
+                "polygon(74.1% 44.1%, 100% 61.6%, 97.5% 26.9%, 85.5% 0.1%, 80.7% 2%, 72.5% 32.5%, 60.2% 62.4%, 52.4% 68.1%, 47.5% 58.3%, 45.2% 34.5%, 27.5% 76.7%, 0.1% 64.9%, 17.9% 100%, 27.6% 76.8%, 76.1% 97.7%, 74.1% 44.1%)",
+            }}
+          />
+        </div>
+
+        <div className="flex flex-col items-center z-10">
+          <motion.div
+            className="w-16 h-16 border-4 border-blue-500 border-t-transparent rounded-full"
+            animate={{ rotate: 360 }}
+            transition={{
+              duration: 1.5,
+              repeat: Infinity,
+              ease: "linear",
+            }}
+          ></motion.div>
+          <motion.p
+            className="mt-6 text-slate-300 text-lg"
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            transition={{ delay: 0.3 }}
+          >
+            Loading your workspace...
+          </motion.p>
         </div>
       </div>
     );
   }
 
   return (
-    <div className="min-h-screen bg-slate-900 flex flex-col">
+    <div className="min-h-screen bg-black flex flex-col relative overflow-hidden">
+      {/* Background gradient effects - matching landing page */}
+      <div
+        className="fixed inset-0 w-full h-full overflow-hidden pointer-events-none"
+        style={{
+          background:
+            "radial-gradient(circle at 50% 50%, rgba(59, 130, 246, 0.15), rgba(0, 0, 0, 0) 70%), radial-gradient(circle at 80% 20%, rgba(139, 92, 246, 0.15), rgba(0, 0, 0, 0) 70%)",
+          zIndex: 0,
+        }}
+        aria-hidden="true"
+      ></div>
+
+      <div
+        className="fixed inset-x-0 top-0 transform-gpu overflow-hidden blur-3xl z-0 pointer-events-none opacity-40"
+        aria-hidden="true"
+      >
+        <div
+          className="relative left-[calc(50%-11rem)] aspect-[1155/678] w-[36.125rem] -translate-x-1/2 rotate-[30deg] bg-gradient-to-tr from-blue-600 to-purple-600 sm:left-[calc(50%-30rem)] sm:w-[72.1875rem]"
+          style={{
+            clipPath:
+              "polygon(74.1% 44.1%, 100% 61.6%, 97.5% 26.9%, 85.5% 0.1%, 80.7% 2%, 72.5% 32.5%, 60.2% 62.4%, 52.4% 68.1%, 47.5% 58.3%, 45.2% 34.5%, 27.5% 76.7%, 0.1% 64.9%, 17.9% 100%, 27.6% 76.8%, 76.1% 97.7%, 74.1% 44.1%)",
+          }}
+        />
+      </div>
+
+      <div
+        className="fixed inset-x-0 bottom-0 transform-gpu overflow-hidden blur-3xl z-0 pointer-events-none opacity-40"
+        aria-hidden="true"
+      >
+        <div
+          className="relative left-[calc(50%+3rem)] aspect-[1155/678] w-[36.125rem] -translate-x-1/2 bg-gradient-to-tr from-purple-800 to-blue-700 sm:left-[calc(50%+36rem)] sm:w-[72.1875rem]"
+          style={{
+            clipPath:
+              "polygon(74.1% 44.1%, 100% 61.6%, 97.5% 26.9%, 85.5% 0.1%, 80.7% 2%, 72.5% 32.5%, 60.2% 62.4%, 52.4% 68.1%, 47.5% 58.3%, 45.2% 34.5%, 27.5% 76.7%, 0.1% 64.9%, 17.9% 100%, 27.6% 76.8%, 76.1% 97.7%, 74.1% 44.1%)",
+          }}
+        />
+      </div>
+
       <Navbar
         title="Dashboard"
         actions={
@@ -310,101 +421,130 @@ export default function Dashboard() {
                 </div>
                 <input
                   type="text"
-                  className="block w-full pl-10 pr-3 py-2 border border-slate-600 rounded-md bg-slate-700 text-slate-200 placeholder-slate-400 focus:outline-none focus:ring-1 focus:ring-blue-500"
+                  className="block w-full pl-10 pr-3 py-2 border border-slate-600 rounded-md bg-slate-700/50 backdrop-blur-sm text-slate-200 placeholder-slate-400 focus:outline-none focus:ring-1 focus:ring-blue-500"
                   placeholder="Search documents..."
                 />
               </div>
             </div>
             <button
-              onClick={handleCreateDocument}
-              className="px-3 py-1.5 rounded-md text-sm bg-gradient-to-r from-blue-600 to-purple-600 text-white hover:from-blue-700 hover:to-purple-700 transition-colors mr-4"
+              onClick={() => setShowNewDocumentModal(true)}
+              className="px-4 py-2 rounded-md text-sm bg-gradient-to-r from-blue-600 to-purple-600 text-white hover:from-blue-700 hover:to-purple-700 transition-all duration-300 flex items-center gap-2 shadow-lg shadow-blue-900/20"
             >
-              + New Document
+              <FiPlus className="text-white" /> New Document
             </button>
           </>
         }
       >
-        <div className="ml-10 hidden md:flex items-baseline space-x-4">
+        <div className="ml-10 hidden md:flex items-baseline space-x-2">
           <Link
             to="/dashboard"
-            className="px-3 py-2 rounded-md text-sm font-medium bg-slate-700 text-white"
+            className="px-4 py-2 rounded-md text-sm font-medium bg-gradient-to-r from-blue-900/50 to-purple-900/50 backdrop-blur-sm text-white"
           >
-            Dashboard
+            <span className="flex items-center gap-2">
+              <FiGrid /> Dashboard
+            </span>
           </Link>
           <Link
             to="/documents"
-            className="px-3 py-2 rounded-md text-sm font-medium text-slate-300 hover:bg-slate-700 hover:text-white"
+            className="px-4 py-2 rounded-md text-sm font-medium text-slate-300 hover:bg-slate-800/50 hover:text-white transition-all duration-300 backdrop-blur-sm"
           >
-            Documents
+            <span className="flex items-center gap-2">
+              <FiFolder /> Documents
+            </span>
           </Link>
           <Link
             to="/shared"
-            className="px-3 py-2 rounded-md text-sm font-medium text-slate-300 hover:bg-slate-700 hover:text-white"
+            className="px-4 py-2 rounded-md text-sm font-medium text-slate-300 hover:bg-slate-800/50 hover:text-white transition-all duration-300 backdrop-blur-sm"
           >
-            Shared
+            <span className="flex items-center gap-2">
+              <FiUsers /> Shared
+            </span>
           </Link>
         </div>
       </Navbar>
 
-      <main className="py-6">
+      <main className="py-8 flex-1 relative z-10">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
           {error && (
-            <div className="mb-6 bg-red-500/10 border border-red-500/50 rounded-lg p-4">
-              <p className="text-red-400">{error}</p>
-            </div>
+            <motion.div
+              initial={{ opacity: 0, y: -20 }}
+              animate={{ opacity: 1, y: 0 }}
+              className="mb-6 bg-red-500/10 border border-red-500/50 rounded-lg p-4"
+            >
+              <p className="text-red-400 flex items-center">
+                <FiInfo className="mr-2" /> {error}
+              </p>
+            </motion.div>
           )}
 
           <motion.div
             initial={{ opacity: 0, y: 20 }}
             animate={{ opacity: 1, y: 0 }}
             transition={{ duration: 0.5 }}
-            className="bg-gradient-to-r from-slate-800 to-slate-800/50 rounded-lg shadow-lg overflow-hidden mb-8"
+            className="bg-gradient-to-r from-blue-900/20 to-purple-900/20 rounded-xl shadow-2xl overflow-hidden mb-8 border border-blue-900/20 backdrop-blur-sm"
           >
             <div className="px-6 py-8 sm:p-10 sm:pb-6">
-              <div className="flex items-center justify-between">
-                <h2 className="text-2xl font-bold text-white">
-                  Welcome back, {currentuser?.username}!
-                </h2>
-                <span className="inline-flex px-4 py-1 text-xs font-semibold leading-5 rounded-full bg-blue-800/30 text-blue-300">
-                  Pro User
-                </span>
-              </div>
-              <div className="mt-4 text-slate-300">
-                <p>
-                  Ready to continue coding? Your recent documents are available
-                  below.
-                </p>
+              <div className="flex items-center justify-between flex-wrap gap-4">
+                <div>
+                  <h2 className="text-3xl font-bold bg-gradient-to-r from-blue-400 to-purple-500 bg-clip-text text-transparent">
+                    Welcome back, {currentuser?.username}!
+                  </h2>
+                  <p className="mt-2 text-slate-300">
+                    Pick up where you left off or start a new project
+                  </p>
+                </div>
+                <div className="flex items-center space-x-2">
+                  <span className="inline-flex px-4 py-1 text-xs font-medium leading-5 rounded-full bg-gradient-to-r from-blue-600/30 to-purple-600/30 text-blue-300 border border-blue-700/30">
+                    <FiZap className="mr-1" /> Pro User
+                  </span>
+                  <span className="inline-flex px-3 py-1 text-xs font-medium rounded-full bg-slate-800/80 text-slate-300 border border-slate-700/50">
+                    <FiCalendar className="mr-1" /> Member since{" "}
+                    {new Date(
+                      currentuser?.createdAt || Date.now()
+                    ).toLocaleDateString()}
+                  </span>
+                </div>
               </div>
             </div>
-            <div className="px-6 py-4 bg-slate-800/50 border-t border-slate-700 sm:px-10">
-              <div className="flex items-center justify-between flex-wrap gap-2">
-                <div className="flex gap-4">
+            <div className="px-6 py-4 bg-slate-800/40 border-t border-slate-700/50 sm:px-10">
+              <div className="flex items-center justify-between flex-wrap gap-3">
+                <div className="flex gap-6">
                   {dashboardData.activityStats && (
                     <>
-                      <div>
-                        <p className="text-sm text-slate-400">
-                          Documents created
-                        </p>
-                        <p className="text-xl font-semibold text-white">
-                          {dashboardData.activityStats.documentsCreated || 0}
-                        </p>
+                      <div className="flex items-center gap-2">
+                        <div className="w-10 h-10 rounded-lg bg-blue-900/50 flex items-center justify-center text-blue-400">
+                          <FiCodepen size={20} />
+                        </div>
+                        <div>
+                          <p className="text-sm text-slate-400">
+                            Documents created
+                          </p>
+                          <p className="text-xl font-semibold text-white">
+                            {dashboardData.activityStats.documentsCreated || 0}
+                          </p>
+                        </div>
                       </div>
-                      <div className="border-l border-slate-700 pl-4">
-                        <p className="text-sm text-slate-400">
-                          Recent activity
-                        </p>
-                        <p className="text-xl font-semibold text-white">
-                          {dashboardData.activityStats.recentActivity || 0}
-                        </p>
+                      <div className="border-l border-slate-700 pl-6 flex items-center gap-2">
+                        <div className="w-10 h-10 rounded-lg bg-purple-900/50 flex items-center justify-center text-purple-400">
+                          <FiActivity size={20} />
+                        </div>
+                        <div>
+                          <p className="text-sm text-slate-400">
+                            Recent activity
+                          </p>
+                          <p className="text-xl font-semibold text-white">
+                            {dashboardData.activityStats.recentActivity || 0}
+                          </p>
+                        </div>
                       </div>
                     </>
                   )}
                 </div>
                 <Link
                   to="/analytics"
-                  className="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-md text-sm font-medium transition-colors"
+                  className="bg-gradient-to-r from-blue-600 to-purple-600 hover:from-blue-700 hover:to-purple-700 text-white px-4 py-2 rounded-md text-sm font-medium transition-all duration-300 shadow-lg shadow-blue-900/20 flex items-center gap-2"
                 >
-                  View activity log
+                  <FiTrendingUp /> View activity log
                 </Link>
               </div>
             </div>
@@ -415,34 +555,35 @@ export default function Dashboard() {
               initial={{ opacity: 0, y: 20 }}
               animate={{ opacity: 1, y: 0 }}
               transition={{ duration: 0.5, delay: 0.1 }}
-              className="bg-slate-800 rounded-lg shadow overflow-hidden"
+              className="bg-slate-800/50 rounded-xl border border-slate-700/50 shadow-xl overflow-hidden backdrop-blur-sm"
             >
-              <div className="px-4 py-5 sm:px-6 border-b border-slate-700">
-                <div className="flex items-center justify-between">
-                  <h3 className="text-lg font-medium text-white">
-                    Your Recent Documents
-                  </h3>
-                  <Link
-                    to="/documents"
-                    className="text-sm text-blue-500 hover:text-blue-400"
-                  >
-                    View all
-                  </Link>
-                </div>
+              <div className="px-6 py-5 bg-slate-800/70 border-b border-slate-700/70 flex justify-between items-center">
+                <h3 className="text-lg font-medium text-white flex items-center gap-2">
+                  <FiFolder className="text-blue-400" /> Your Recent Documents
+                </h3>
+                <Link
+                  to="/documents"
+                  className="text-sm text-blue-400 hover:text-blue-300 transition-colors flex items-center gap-1"
+                >
+                  View all <FiArrowRight size={14} />
+                </Link>
               </div>
-              <div className="divide-y divide-slate-700">
+              <div className="divide-y divide-slate-700/50">
                 {dashboardData.ownedDocuments.length > 0 ? (
                   dashboardData.ownedDocuments
                     .slice(0, 3)
                     .map((doc) => documentListItem(doc))
                 ) : (
-                  <div className="px-4 py-12 text-center">
+                  <div className="p-8 text-center">
+                    <div className="w-16 h-16 bg-slate-700/50 rounded-full mx-auto flex items-center justify-center mb-4">
+                      <FiFile className="text-slate-400" size={24} />
+                    </div>
                     <p className="text-slate-400">
                       You don't have any documents yet.
                     </p>
                     <button
-                      onClick={handleCreateDocument}
-                      className="mt-4 px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-md text-sm font-medium transition-colors"
+                      onClick={() => setShowNewDocumentModal(true)}
+                      className="mt-4 px-4 py-2 bg-gradient-to-r from-blue-600 to-purple-600 hover:from-blue-700 hover:to-purple-700 text-white rounded-md text-sm font-medium transition-all duration-300"
                     >
                       Create your first document
                     </button>
@@ -455,29 +596,32 @@ export default function Dashboard() {
               initial={{ opacity: 0, y: 20 }}
               animate={{ opacity: 1, y: 0 }}
               transition={{ duration: 0.5, delay: 0.2 }}
-              className="bg-slate-800 rounded-lg shadow overflow-hidden"
+              className="bg-slate-800/50 rounded-xl border border-slate-700/50 shadow-xl overflow-hidden backdrop-blur-sm"
             >
-              <div className="px-4 py-5 sm:px-6 border-b border-slate-700">
-                <div className="flex items-center justify-between">
-                  <h3 className="text-lg font-medium text-white">
-                    Shared With You
-                  </h3>
-                  <Link
-                    to="/shared"
-                    className="text-sm text-blue-500 hover:text-blue-400"
-                  >
-                    View all
-                  </Link>
-                </div>
+              <div className="px-6 py-5 bg-slate-800/70 border-b border-slate-700/70 flex justify-between items-center">
+                <h3 className="text-lg font-medium text-white flex items-center gap-2">
+                  <FiUsers className="text-purple-400" /> Shared With You
+                </h3>
+                <Link
+                  to="/shared"
+                  className="text-sm text-blue-400 hover:text-blue-300 transition-colors flex items-center gap-1"
+                >
+                  View all <FiArrowRight size={14} />
+                </Link>
               </div>
-              <div className="divide-y divide-slate-700">
+              <div className="divide-y divide-slate-700/50">
                 {dashboardData.sharedDocuments.length > 0 ? (
                   dashboardData.sharedDocuments
                     .slice(0, 3)
                     .map((doc) => sharedDocumentListItem(doc))
                 ) : (
-                  <div className="px-4 py-12 text-center text-slate-400">
-                    <p>No documents have been shared with you yet.</p>
+                  <div className="p-8 text-center">
+                    <div className="w-16 h-16 bg-slate-700/50 rounded-full mx-auto flex items-center justify-center mb-4">
+                      <FiUsers className="text-slate-400" size={24} />
+                    </div>
+                    <p className="text-slate-400">
+                      No documents have been shared with you yet.
+                    </p>
                   </div>
                 )}
               </div>
@@ -488,9 +632,10 @@ export default function Dashboard() {
             initial={{ opacity: 0, y: 20 }}
             animate={{ opacity: 1, y: 0 }}
             transition={{ duration: 0.5, delay: 0.3 }}
-            className="mt-8 bg-gradient-to-r from-blue-900/30 to-purple-900/30 rounded-lg shadow overflow-hidden border border-blue-800/30"
+            className="mt-8 bg-gradient-to-r from-blue-900/20 to-purple-900/20 rounded-xl shadow-xl overflow-hidden border border-blue-900/20 backdrop-blur-sm"
           >
-            <div className="px-6 py-5 sm:px-6 border-b border-blue-800/30">
+            <div className="px-6 py-5 border-b border-blue-900/30 flex items-center gap-2">
+              <FiCommand className="text-blue-400" size={20} />
               <h3 className="text-lg font-medium text-white">
                 Quick Start Templates
               </h3>
@@ -498,111 +643,256 @@ export default function Dashboard() {
             <div className="p-6">
               <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
                 {templates.map((template) => (
-                  <div
+                  <motion.div
                     key={template.id}
-                    className="bg-slate-800/70 border border-slate-700 rounded-md p-4 hover:bg-slate-800 hover:border-slate-600 transition-colors cursor-pointer"
+                    whileHover={{ y: -5, transition: { duration: 0.2 } }}
+                    className="group bg-slate-800/70 border border-slate-700/70 rounded-lg p-5 hover:bg-gradient-to-br hover:from-blue-900/40 hover:to-purple-900/40 hover:border-blue-700/50 transition-all duration-300 cursor-pointer"
                     onClick={() => handleCreateDocument(template.id)}
                   >
-                    <div className="h-10 w-10 rounded-md bg-blue-900/50 flex items-center justify-center text-blue-400 mb-3">
+                    <div className="h-12 w-12 rounded-lg bg-gradient-to-br from-blue-600/30 to-purple-600/30 border border-blue-700/30 flex items-center justify-center text-blue-400 mb-4 group-hover:from-blue-600/50 group-hover:to-purple-600/50 transition-all duration-300">
                       {template.icon}
                     </div>
                     <h4 className="text-white font-medium">{template.name}</h4>
                     <p className="text-sm text-slate-400 mt-1">
                       {template.description}
                     </p>
-                  </div>
+                  </motion.div>
                 ))}
               </div>
             </div>
           </motion.div>
         </div>
       </main>
+
+      {/* New Document Modal */}
+      {showNewDocumentModal && (
+        <div className="fixed inset-0 bg-black/70 flex items-center justify-center z-50 backdrop-blur-sm">
+          <motion.div
+            initial={{ opacity: 0, scale: 0.9 }}
+            animate={{ opacity: 1, scale: 1 }}
+            className="bg-slate-800 border border-slate-700 rounded-xl w-full max-w-md p-6 shadow-2xl"
+          >
+            <div className="flex items-center justify-between mb-6">
+              <h3 className="text-xl font-bold text-white flex items-center gap-2">
+                <FiFile className="text-blue-400" /> Create New Document
+              </h3>
+              <button
+                onClick={() => setShowNewDocumentModal(false)}
+                className="text-slate-400 hover:text-white"
+              >
+                <svg
+                  xmlns="http://www.w3.org/2000/svg"
+                  width="24"
+                  height="24"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth="2"
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                >
+                  <line x1="18" y1="6" x2="6" y2="18"></line>
+                  <line x1="6" y1="6" x2="18" y2="18"></line>
+                </svg>
+              </button>
+            </div>
+
+            <div className="grid grid-cols-2 gap-4 mb-6">
+              <button
+                onClick={() => handleCreateDocument()}
+                className="flex flex-col items-center p-4 bg-slate-700 hover:bg-slate-600 rounded-lg border border-slate-600 transition-colors"
+              >
+                <FiFile className="text-blue-400 mb-2" size={24} />
+                <span className="text-white text-sm">Blank Document</span>
+              </button>
+              <button
+                onClick={() => handleCreateDocument("js")}
+                className="flex flex-col items-center p-4 bg-slate-700 hover:bg-slate-600 rounded-lg border border-slate-600 transition-colors"
+              >
+                <FiCode className="text-blue-400 mb-2" size={24} />
+                <span className="text-white text-sm">JavaScript</span>
+              </button>
+              <button
+                onClick={() => handleCreateDocument("react")}
+                className="flex flex-col items-center p-4 bg-slate-700 hover:bg-slate-600 rounded-lg border border-slate-600 transition-colors"
+              >
+                <FiCodepen className="text-blue-400 mb-2" size={24} />
+                <span className="text-white text-sm">React Component</span>
+              </button>
+              <button
+                onClick={() => handleCreateDocument("html")}
+                className="flex flex-col items-center p-4 bg-slate-700 hover:bg-slate-600 rounded-lg border border-slate-600 transition-colors"
+              >
+                <FiGlobe className="text-blue-400 mb-2" size={24} />
+                <span className="text-white text-sm">HTML Document</span>
+              </button>
+            </div>
+
+            <div className="flex justify-end">
+              <button
+                onClick={() => setShowNewDocumentModal(false)}
+                className="px-4 py-2 text-slate-300 hover:text-white transition-colors"
+              >
+                Cancel
+              </button>
+            </div>
+          </motion.div>
+        </div>
+      )}
     </div>
   );
 }
 
-const getLanguageFromExtension = (ext) => {
-  const extensionMap = {
-    js: "javascript",
-    jsx: "javascript",
-    ts: "typescript",
-    tsx: "typescript",
-    html: "html",
-    css: "css",
-    py: "python",
-    java: "java",
-    c: "c",
-    cpp: "cpp",
-    cs: "csharp",
-    go: "go",
-    rs: "rust",
-    php: "php",
-    rb: "ruby",
-    md: "markdown",
-    json: "json",
-    yaml: "yaml",
-    yml: "yaml",
-    xml: "xml",
-    sql: "sql",
-  };
+const documentListItem = (doc, isPinned = false) => (
+  <motion.div
+    key={doc._id}
+    initial={{ opacity: 0 }}
+    animate={{ opacity: 1 }}
+    className="group hover:bg-slate-700/30 transition-colors"
+  >
+    <div className="p-4">
+      <div className="flex justify-between items-start">
+        <div className="flex items-start gap-3">
+          <div className="mt-1">{getLanguageIcon(doc.language)}</div>
+          <div>
+            <Link
+              to={`/documents/${doc._id}`}
+              className="text-blue-400 font-medium hover:text-blue-300 flex items-center gap-2 transition-colors"
+            >
+              <span>{doc.title}</span>
+              {doc.isPublic && (
+                <span className="text-xs bg-blue-900/40 text-blue-300 px-2 py-0.5 rounded-full border border-blue-800/50">
+                  <FiGlobe className="inline mr-1" size={10} /> Public
+                </span>
+              )}
+            </Link>
+            <div className="flex items-center mt-1 gap-2">
+              <span className="text-xs font-medium text-slate-400">
+                {formatLanguage(doc.language)}
+              </span>
+              <span className="text-[10px] text-slate-500">•</span>
+              <span className="text-xs text-slate-500 flex items-center">
+                <FiClock className="mr-1" size={12} />{" "}
+                {formatDate(doc.updatedAt)}
+              </span>
+            </div>
+          </div>
+        </div>
+        <motion.button
+          whileHover={{
+            rotate: isPinned ? -15 : 15,
+            transition: { duration: 0.2 },
+          }}
+          className={`text-slate-400 hover:text-${
+            isPinned ? "yellow" : "slate"
+          }-300`}
+          onClick={() =>
+            console.log(`${isPinned ? "Unpin" : "Pin"} document ${doc._id}`)
+          }
+        >
+          <FiStar
+            className={isPinned ? "fill-yellow-400 text-yellow-400" : ""}
+          />
+        </motion.button>
+      </div>
+    </div>
+    <div className="py-2 px-4 flex justify-between items-center border-t border-slate-700/50 bg-slate-800/30">
+      <div className="flex items-center gap-3">
+        <motion.button
+          whileHover={{ y: -2 }}
+          className="text-xs font-medium text-slate-400 hover:text-white flex items-center gap-1.5 bg-slate-700/50 hover:bg-slate-700 transition-all px-3 py-1.5 rounded-md"
+          onClick={() => navigate(`/documents/${doc._id}`)}
+        >
+          <FiEdit className="text-blue-400" size={14} />
+          Edit
+        </motion.button>
+        <motion.button
+          whileHover={{ y: -2 }}
+          className="text-xs font-medium text-slate-400 hover:text-white flex items-center gap-1.5 bg-slate-700/50 hover:bg-slate-700 transition-all px-3 py-1.5 rounded-md"
+          onClick={() => navigate(`/documents/${doc._id}/preview`)}
+        >
+          <FiEye className="text-purple-400" size={14} />
+          Preview
+        </motion.button>
+        <motion.button
+          whileHover={{ y: -2 }}
+          className="text-xs font-medium text-slate-400 hover:text-white flex items-center gap-1.5 bg-slate-700/50 hover:bg-slate-700 transition-all px-3 py-1.5 rounded-md"
+          onClick={() => {
+            navigator.clipboard.writeText(
+              `${window.location.origin}/documents/${doc._id}`
+            );
+            // Show toast notification or feedback
+          }}
+        >
+          <FiCopy className="text-slate-400" size={14} />
+          Copy Link
+        </motion.button>
+      </div>
+      <motion.button
+        whileHover={{ rotate: 15 }}
+        className="text-xs font-medium text-slate-400 hover:text-white bg-slate-700/50 hover:bg-slate-700 p-2 rounded-md transition-all"
+        onClick={() => console.log(`Share document ${doc._id}`)}
+      >
+        <FiUsers size={14} />
+      </motion.button>
+    </div>
+  </motion.div>
+);
 
-  return extensionMap[ext] || "plaintext";
+// Add these new functions
+
+const formatLanguage = (lang) => {
+  // Capitalize first letter
+  return lang.charAt(0).toUpperCase() + lang.slice(1);
 };
 
-const getDefaultFilename = (templateId) => {
-  switch (templateId) {
-    case "js":
-      return "script.js";
-    case "react":
-      return "Component.jsx";
-    case "html":
-      return "index.html";
-    case "api":
-      return "api-docs.md";
-    default:
-      return "untitled.js";
-  }
-};
+const getLanguageIcon = (language) => {
+  const iconSize = 16;
 
-const getDefaultContentForLanguage = (language) => {
-  switch (language) {
+  switch (language.toLowerCase()) {
     case "javascript":
-      return '// JavaScript file\n\nconsole.log("Hello world!");\n';
+      return (
+        <div className="w-8 h-8 rounded-md flex items-center justify-center bg-yellow-400/20 border border-yellow-500/30 text-yellow-400">
+          JS
+        </div>
+      );
+    case "typescript":
+      return (
+        <div className="w-8 h-8 rounded-md flex items-center justify-center bg-blue-400/20 border border-blue-500/30 text-blue-400">
+          TS
+        </div>
+      );
     case "html":
-      return "<!DOCTYPE html>\n<html>\n<head>\n  <title>Document</title>\n</head>\n<body>\n  <h1>Hello World</h1>\n</body>\n</html>";
+      return (
+        <div className="w-8 h-8 rounded-md flex items-center justify-center bg-orange-400/20 border border-orange-500/30 text-orange-400">
+          <FiCode size={iconSize} />
+        </div>
+      );
+    case "css":
+      return (
+        <div className="w-8 h-8 rounded-md flex items-center justify-center bg-indigo-400/20 border border-indigo-500/30 text-indigo-400">
+          <FiCode size={iconSize} />
+        </div>
+      );
     case "python":
-      return '# Python file\n\nprint("Hello world!")\n';
+      return (
+        <div className="w-8 h-8 rounded-md flex items-center justify-center bg-green-400/20 border border-green-500/30 text-green-400">
+          PY
+        </div>
+      );
     case "markdown":
-      return "# Document Title\n\n## Section\n\nContent goes here.\n";
+      return (
+        <div className="w-8 h-8 rounded-md flex items-center justify-center bg-purple-400/20 border border-purple-500/30 text-purple-400">
+          MD
+        </div>
+      );
     default:
-      return "// New document\n";
+      return (
+        <div className="w-8 h-8 rounded-md flex items-center justify-center bg-slate-700 border border-slate-600 text-slate-400">
+          <FiFile size={iconSize} />
+        </div>
+      );
   }
 };
 
-const getTemplateContent = (templateId) => {
-  switch (templateId) {
-    case "js":
-      return {
-        content: '// JavaScript Document\n\nconsole.log("Hello world!");\n',
-      };
-    case "react":
-      return {
-        content:
-          'import React from "react";\n\nexport default function Component() {\n  return (\n    <div>\n      <h1>Hello React</h1>\n    </div>\n  );\n}\n',
-      };
-    case "html":
-      return {
-        content:
-          '<!DOCTYPE html>\n<html>\n<head>\n  <title>Document</title>\n  <meta charset="UTF-8">\n</head>\n<body>\n  <h1>Hello World</h1>\n</body>\n</html>',
-      };
-    case "api":
-      return {
-        content:
-          "# API Documentation\n\n## Endpoints\n\n### GET /api/resource\n\nReturns a list of resources.\n",
-      };
-    default:
-      return {
-        content: "",
-      };
-  }
-};
+// Keep the existing functions...
