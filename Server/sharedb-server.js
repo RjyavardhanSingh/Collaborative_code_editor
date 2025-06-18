@@ -1,6 +1,6 @@
 import http from "http";
 import ShareDB from "sharedb";
-import { WebSocketServer } from "ws"; // FIXED: correct import
+import { WebSocketServer } from "ws"; 
 import dotenv from "dotenv";
 
 dotenv.config();
