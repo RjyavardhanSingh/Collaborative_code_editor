@@ -28,6 +28,7 @@ import {
 } from "react-icons/fi";
 import api from "../../lib/api.js";
 import Navbar from "../../components/layout/NavBar";
+import FileExplorer from "../../components/explorer/FileExplorer";
 
 export default function Dashboard() {
   const { currentuser } = useAuth();
@@ -445,14 +446,6 @@ export default function Dashboard() {
             </span>
           </Link>
           <Link
-            to="/documents"
-            className="px-4 py-2 rounded-md text-sm font-medium text-slate-300 hover:bg-slate-800/50 hover:text-white transition-all duration-300 backdrop-blur-sm"
-          >
-            <span className="flex items-center gap-2">
-              <FiFolder /> Documents
-            </span>
-          </Link>
-          <Link
             to="/shared"
             className="px-4 py-2 rounded-md text-sm font-medium text-slate-300 hover:bg-slate-800/50 hover:text-white transition-all duration-300 backdrop-blur-sm"
           >
@@ -550,117 +543,107 @@ export default function Dashboard() {
             </div>
           </motion.div>
 
-          <div className="grid gap-8 lg:grid-cols-2">
-            <motion.div
-              initial={{ opacity: 0, y: 20 }}
-              animate={{ opacity: 1, y: 0 }}
-              transition={{ duration: 0.5, delay: 0.1 }}
-              className="bg-slate-800/50 rounded-xl border border-slate-700/50 shadow-xl overflow-hidden backdrop-blur-sm"
-            >
-              <div className="px-6 py-5 bg-slate-800/70 border-b border-slate-700/70 flex justify-between items-center">
-                <h3 className="text-lg font-medium text-white flex items-center gap-2">
-                  <FiFolder className="text-blue-400" /> Your Recent Documents
-                </h3>
-                <Link
-                  to="/documents"
-                  className="text-sm text-blue-400 hover:text-blue-300 transition-colors flex items-center gap-1"
+          <div className="space-y-8">
+            {/* Top row with Explorer and Recent Documents side by side */}
+            <div className="flex flex-col lg:flex-row gap-8">
+              {/* Left column with file explorer - with fixed height */}
+              <div className="lg:w-1/3">
+                <div
+                  className="bg-slate-800/50 rounded-xl border border-slate-700/50 shadow-xl overflow-hidden backdrop-blur-sm"
+                  style={{ maxHeight: "400px", height: "400px" }} // Set explicit height as well as maxHeight
                 >
-                  View all <FiArrowRight size={14} />
-                </Link>
+                  <FileExplorer
+                    onFileSelect={(file) => navigate(`/documents/${file._id}`)}
+                    className="h-full overflow-y-auto" // Explicit y-axis overflow
+                  />
+                </div>
               </div>
-              <div className="divide-y divide-slate-700/50">
-                {dashboardData.ownedDocuments.length > 0 ? (
-                  dashboardData.ownedDocuments
-                    .slice(0, 3)
-                    .map((doc) => documentListItem(doc))
-                ) : (
-                  <div className="p-8 text-center">
-                    <div className="w-16 h-16 bg-slate-700/50 rounded-full mx-auto flex items-center justify-center mb-4">
-                      <FiFile className="text-slate-400" size={24} />
-                    </div>
-                    <p className="text-slate-400">
-                      You don't have any documents yet.
-                    </p>
-                    <button
-                      onClick={() => setShowNewDocumentModal(true)}
-                      className="mt-4 px-4 py-2 bg-gradient-to-r from-blue-600 to-purple-600 hover:from-blue-700 hover:to-purple-700 text-white rounded-md text-sm font-medium transition-all duration-300"
+
+              {/* Right column with just Recent Documents */}
+              <div className="lg:w-2/3">
+                <motion.div
+                  initial={{ opacity: 0, y: 20 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  transition={{ duration: 0.5, delay: 0.1 }}
+                  className="bg-slate-800/50 rounded-xl border border-slate-700/50 shadow-xl overflow-hidden backdrop-blur-sm"
+                >
+                  <div className="px-6 py-5 bg-slate-800/70 border-b border-slate-700/70 flex justify-between items-center">
+                    <h3 className="text-lg font-medium text-white flex items-center gap-2">
+                      <FiFolder className="text-blue-400" /> Your Recent
+                      Documents
+                    </h3>
+                    <Link
+                      to="/documents"
+                      className="text-sm text-blue-400 hover:text-blue-300 transition-colors flex items-center gap-1"
                     >
-                      Create your first document
-                    </button>
+                      View all <FiArrowRight size={14} />
+                    </Link>
                   </div>
-                )}
+                  <div className="divide-y divide-slate-700/50">
+                    {dashboardData.ownedDocuments.length > 0 ? (
+                      dashboardData.ownedDocuments
+                        .slice(0, 3)
+                        .map((doc) => documentListItem(doc))
+                    ) : (
+                      <div className="p-8 text-center">
+                        <div className="w-16 h-16 bg-slate-700/50 rounded-full mx-auto flex items-center justify-center mb-4">
+                          <FiFile className="text-slate-400" size={24} />
+                        </div>
+                        <p className="text-slate-400">
+                          You don't have any documents yet.
+                        </p>
+                        <button
+                          onClick={() => setShowNewDocumentModal(true)}
+                          className="mt-4 px-4 py-2 bg-gradient-to-r from-blue-600 to-purple-600 hover:from-blue-700 hover:to-purple-700 text-white rounded-md text-sm font-medium transition-all duration-300"
+                        >
+                          Create your first document
+                        </button>
+                      </div>
+                    )}
+                  </div>
+                </motion.div>
               </div>
-            </motion.div>
+            </div>
 
-            <motion.div
-              initial={{ opacity: 0, y: 20 }}
-              animate={{ opacity: 1, y: 0 }}
-              transition={{ duration: 0.5, delay: 0.2 }}
-              className="bg-slate-800/50 rounded-xl border border-slate-700/50 shadow-xl overflow-hidden backdrop-blur-sm"
-            >
-              <div className="px-6 py-5 bg-slate-800/70 border-b border-slate-700/70 flex justify-between items-center">
-                <h3 className="text-lg font-medium text-white flex items-center gap-2">
-                  <FiUsers className="text-purple-400" /> Shared With You
-                </h3>
-                <Link
-                  to="/shared"
-                  className="text-sm text-blue-400 hover:text-blue-300 transition-colors flex items-center gap-1"
-                >
-                  View all <FiArrowRight size={14} />
-                </Link>
-              </div>
-              <div className="divide-y divide-slate-700/50">
-                {dashboardData.sharedDocuments.length > 0 ? (
-                  dashboardData.sharedDocuments
-                    .slice(0, 3)
-                    .map((doc) => sharedDocumentListItem(doc))
-                ) : (
-                  <div className="p-8 text-center">
-                    <div className="w-16 h-16 bg-slate-700/50 rounded-full mx-auto flex items-center justify-center mb-4">
-                      <FiUsers className="text-slate-400" size={24} />
-                    </div>
-                    <p className="text-slate-400">
-                      No documents have been shared with you yet.
-                    </p>
+            {/* Centered Quick Templates below both Explorer and Recent Documents */}
+            <div className="max-w-4xl mx-auto">
+              <motion.div
+                initial={{ opacity: 0, y: 20 }}
+                animate={{ opacity: 1, y: 0 }}
+                transition={{ duration: 0.5, delay: 0.3 }}
+                className="bg-gradient-to-r from-blue-900/20 to-purple-900/20 rounded-xl shadow-xl overflow-hidden border border-blue-900/20 backdrop-blur-sm"
+              >
+                <div className="px-6 py-5 border-b border-blue-900/30 flex items-center gap-2">
+                  <FiCommand className="text-blue-400" size={20} />
+                  <h3 className="text-lg font-medium text-white">
+                    Quick Start Templates
+                  </h3>
+                </div>
+                <div className="p-6">
+                  <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+                    {templates.map((template) => (
+                      <motion.div
+                        key={template.id}
+                        whileHover={{ y: -5, transition: { duration: 0.2 } }}
+                        className="group bg-slate-800/70 border border-slate-700/70 rounded-lg p-5 hover:bg-gradient-to-br hover:from-blue-900/40 hover:to-purple-900/40 hover:border-blue-700/50 transition-all duration-300 cursor-pointer"
+                        onClick={() => handleCreateDocument(template.id)}
+                      >
+                        <div className="h-12 w-12 rounded-lg bg-gradient-to-br from-blue-600/30 to-purple-600/30 border border-blue-700/30 flex items-center justify-center text-blue-400 mb-4 group-hover:from-blue-600/50 group-hover:to-purple-600/50 transition-all duration-300">
+                          {template.icon}
+                        </div>
+                        <h4 className="text-white font-medium">
+                          {template.name}
+                        </h4>
+                        <p className="text-sm text-slate-400 mt-1">
+                          {template.description}
+                        </p>
+                      </motion.div>
+                    ))}
                   </div>
-                )}
-              </div>
-            </motion.div>
+                </div>
+              </motion.div>
+            </div>
           </div>
-
-          <motion.div
-            initial={{ opacity: 0, y: 20 }}
-            animate={{ opacity: 1, y: 0 }}
-            transition={{ duration: 0.5, delay: 0.3 }}
-            className="mt-8 bg-gradient-to-r from-blue-900/20 to-purple-900/20 rounded-xl shadow-xl overflow-hidden border border-blue-900/20 backdrop-blur-sm"
-          >
-            <div className="px-6 py-5 border-b border-blue-900/30 flex items-center gap-2">
-              <FiCommand className="text-blue-400" size={20} />
-              <h3 className="text-lg font-medium text-white">
-                Quick Start Templates
-              </h3>
-            </div>
-            <div className="p-6">
-              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
-                {templates.map((template) => (
-                  <motion.div
-                    key={template.id}
-                    whileHover={{ y: -5, transition: { duration: 0.2 } }}
-                    className="group bg-slate-800/70 border border-slate-700/70 rounded-lg p-5 hover:bg-gradient-to-br hover:from-blue-900/40 hover:to-purple-900/40 hover:border-blue-700/50 transition-all duration-300 cursor-pointer"
-                    onClick={() => handleCreateDocument(template.id)}
-                  >
-                    <div className="h-12 w-12 rounded-lg bg-gradient-to-br from-blue-600/30 to-purple-600/30 border border-blue-700/30 flex items-center justify-center text-blue-400 mb-4 group-hover:from-blue-600/50 group-hover:to-purple-600/50 transition-all duration-300">
-                      {template.icon}
-                    </div>
-                    <h4 className="text-white font-medium">{template.name}</h4>
-                    <p className="text-sm text-slate-400 mt-1">
-                      {template.description}
-                    </p>
-                  </motion.div>
-                ))}
-              </div>
-            </div>
-          </motion.div>
         </div>
       </main>
 
@@ -895,4 +878,165 @@ const getLanguageIcon = (language) => {
   }
 };
 
-// Keep the existing functions...
+// Add these functions after the getLanguageIcon function
+
+// Map file extensions to language names
+const getLanguageFromExtension = (extension) => {
+  const extensionMap = {
+    js: "javascript",
+    jsx: "javascript",
+    ts: "typescript",
+    tsx: "typescript",
+    html: "html",
+    css: "css",
+    py: "python",
+    md: "markdown",
+    json: "json",
+    // Add more mappings as needed
+  };
+
+  return extensionMap[extension] || "plaintext";
+};
+
+// Get default filename for templates
+const getDefaultFilename = (templateId) => {
+  switch (templateId) {
+    case "js":
+      return "script.js";
+    case "react":
+      return "component.jsx";
+    case "html":
+      return "index.html";
+    case "api":
+      return "api-spec.md";
+    default:
+      return "untitled.js";
+  }
+};
+
+// Get template content based on template ID
+const getTemplateContent = (templateId) => {
+  switch (templateId) {
+    case "js":
+      return {
+        content: `// JavaScript Template
+'use strict';
+
+/**
+ * Example function
+ */
+function greet(name) {
+  return \`Hello, \${name}!\`;
+}
+
+console.log(greet('World'));
+`,
+      };
+    case "react":
+      return {
+        content: `// React Component Template
+import React, { useState, useEffect } from 'react';
+
+const Component = ({ title }) => {
+  const [data, setData] = useState(null);
+
+  useEffect(() => {
+    // Fetch data or perform side effects
+    console.log('Component mounted');
+    return () => console.log('Component unmounted');
+  }, []);
+
+  return (
+    <div className="component">
+      <h2>{title}</h2>
+      {/* Component content */}
+    </div>
+  );
+};
+
+export default Component;
+`,
+      };
+    case "html":
+      return {
+        content: `<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Document</title>
+  <style>
+    /* Add your CSS here */
+    body {
+      font-family: Arial, sans-serif;
+      margin: 0;
+      padding: 20px;
+    }
+  </style>
+</head>
+<body>
+  <h1>Hello World</h1>
+
+  <script>
+    // Add your JavaScript here
+    console.log('Page loaded');
+  </script>
+</body>
+</html>
+`,
+      };
+    case "api":
+      return {
+        content: `# API Documentation
+
+## Endpoints
+
+### GET /api/resources
+Returns a list of resources.
+
+#### Parameters
+- \`page\`: Page number (default: 1)
+- \`limit\`: Items per page (default: 10)
+
+#### Response
+\`\`\`json
+{
+  "data": [
+    {
+      "id": 1,
+      "name": "Example"
+    }
+  ],
+  "pagination": {
+    "total": 100,
+    "pages": 10,
+    "current": 1
+  }
+}
+\`\`\`
+`,
+      };
+    default:
+      return { content: "" };
+  }
+};
+
+// Get default content for a language
+const getDefaultContentForLanguage = (language) => {
+  switch (language.toLowerCase()) {
+    case "javascript":
+      return "// New JavaScript document\n\nconsole.log('Hello, world!');\n";
+    case "typescript":
+      return "// New TypeScript document\n\ninterface User {\n  name: string;\n  id: number;\n}\n\nconst user: User = {\n  name: 'John',\n  id: 1\n};\n\nconsole.log(user);\n";
+    case "html":
+      return '<!DOCTYPE html>\n<html lang="en">\n<head>\n  <meta charset="UTF-8">\n  <meta name="viewport" content="width=device-width, initial-scale=1.0">\n  <title>Document</title>\n</head>\n<body>\n  <h1>Hello World</h1>\n</body>\n</html>';
+    case "css":
+      return "/* New CSS document */\n\nbody {\n  font-family: Arial, sans-serif;\n  margin: 0;\n  padding: 0;\n  line-height: 1.6;\n}\n";
+    case "python":
+      return '# New Python document\n\ndef greet(name):\n    return f"Hello, {name}!"\n\nprint(greet("World"))\n';
+    case "markdown":
+      return "# New Document\n\n## Introduction\n\nThis is a new markdown document.\n\n## Features\n\n- Feature 1\n- Feature 2\n";
+    default:
+      return "// New document\n";
+  }
+};

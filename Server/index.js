@@ -14,6 +14,7 @@ import analyticsRoutes from "./routers/analytics.route.js";
 import { errorHandler } from "./middlewares/auth.js";
 import { setupSocketHandlers } from "./socket/socket.handler.js";
 import invitationRoutes from "./routers/invitation.route.js";
+import folderRoutes from "./routers/folder.route.js";
 
 dotenv.config();
 
@@ -51,6 +52,7 @@ app.use("/api/documents", documentRoutes);
 app.use("/api/search", searchRoutes);
 app.use("/api/analytics", analyticsRoutes);
 app.use("/api/invitations", invitationRoutes);
+app.use("/api/folders", folderRoutes);
 
 app.use(errorHandler);
 

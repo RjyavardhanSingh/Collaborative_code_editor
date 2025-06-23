@@ -17,6 +17,8 @@ import {
   FiMaximize,
   FiMinimize,
   FiX,
+  FiChevronLeft,
+  FiChevronRight,
 } from "react-icons/fi";
 import InvitationModal from "../../components/collaboration/InvitationModal";
 import CollaboratorManagement from "../../components/collaboration/CollaboratorManagement";
@@ -24,6 +26,7 @@ import { Connection } from "sharedb/lib/client";
 import ReconnectingWebSocket from "reconnecting-websocket";
 import { MonacoShareDBBinding } from "../../lib/MonacoShareDBBinding";
 import { io } from "socket.io-client";
+import FileExplorer from "../../components/explorer/FileExplorer";
 
 const addRemoteCursorStyle = (clientId, color, name) => {
   const styleId = `remote-cursor-${clientId}-style`;
@@ -93,6 +96,7 @@ export default function DocumentEditor() {
   const heartbeatIntervalRef = useRef(null);
   const autoSaveTimeoutRef = useRef(null);
 
+ 
   const [doc, setDoc] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
@@ -112,6 +116,7 @@ export default function DocumentEditor() {
   const [isInvitationModalOpen, setIsInvitationModalOpen] = useState(false);
   const [unreadMessageCount, setUnreadMessageCount] = useState(0);
   const [connectedUsers, setConnectedUsers] = useState(new Map());
+ 
 
   useEffect(() => {
     const fetchDocument = async () => {
@@ -645,6 +650,18 @@ export default function DocumentEditor() {
     return () => clearInterval(intervalId);
   }, [activeUsers, doc]);
 
+  // Add this to your state variables
+  const [isExplorerOpen, setIsExplorerOpen] = useState(true);
+
+  // Add this function to handle file selection from explorer
+  const handleFileSelect = (file) => {
+    // If it's the current document, do nothing
+    if (file._id === id) return;
+
+    // Navigate to the selected file
+    navigate(`/documents/${file._id}`);
+  };
+
   // Add this to your DocumentEditor.jsx component
   const forceYjsSync = (editor, yText) => {
     if (!editor || !yText) return;
@@ -1046,6 +1063,30 @@ export default function DocumentEditor() {
       />
 
       <div className="flex flex-1 relative" id="editor-container">
+        {/* Add sidebar toggle button */}
+        <button
+          onClick={() => setIsExplorerOpen(!isExplorerOpen)}
+          className="absolute left-0 top-1/2 transform -translate-y-1/2 bg-slate-800/80 z-10 p-1.5 rounded-r-md text-slate-400 hover:text-white"
+          title={isExplorerOpen ? "Hide Explorer" : "Show Explorer"}
+        >
+          {isExplorerOpen ? <FiChevronLeft /> : <FiChevronRight />}
+        </button>
+
+        {/* Add explorer sidebar */}
+        <motion.div
+          initial={{ width: isExplorerOpen ? 250 : 0 }}
+          animate={{ width: isExplorerOpen ? 250 : 0 }}
+          transition={{ duration: 0.2 }}
+          className="h-full bg-slate-900/90 border-r border-slate-700/50 overflow-hidden"
+        >
+          {isExplorerOpen && (
+            <FileExplorer
+              onFileSelect={handleFileSelect}
+              currentDocumentId={id}
+            />
+          )}
+        </motion.div>
+
         <div className="flex-1 relative bg-white">
           <Editor
             height="100%"
