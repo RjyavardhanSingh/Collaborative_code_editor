@@ -19,6 +19,7 @@ import {
   FiX,
   FiChevronLeft,
   FiChevronRight,
+  FiFolder,
 } from "react-icons/fi";
 import InvitationModal from "../../components/collaboration/InvitationModal";
 import CollaboratorManagement from "../../components/collaboration/CollaboratorManagement";
@@ -96,7 +97,6 @@ export default function DocumentEditor() {
   const heartbeatIntervalRef = useRef(null);
   const autoSaveTimeoutRef = useRef(null);
 
- 
   const [doc, setDoc] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
@@ -116,7 +116,10 @@ export default function DocumentEditor() {
   const [isInvitationModalOpen, setIsInvitationModalOpen] = useState(false);
   const [unreadMessageCount, setUnreadMessageCount] = useState(0);
   const [connectedUsers, setConnectedUsers] = useState(new Map());
- 
+
+  // Add this state to track folder context
+  const [currentFolder, setCurrentFolder] = useState(null);
+  const [showAllFiles, setShowAllFiles] = useState(true);
 
   useEffect(() => {
     const fetchDocument = async () => {
@@ -143,6 +146,12 @@ export default function DocumentEditor() {
           { user: data.owner, permission: "admin" },
         ];
         setCollaborators(collaboratorsData);
+
+        // Set the folder context if the document is in a folder
+        if (data.folder) {
+          setCurrentFolder(data.folder);
+          setShowAllFiles(false);
+        }
 
         setError(null);
       } catch (err) {
@@ -1080,10 +1089,37 @@ export default function DocumentEditor() {
           className="h-full bg-slate-900/90 border-r border-slate-700/50 overflow-hidden"
         >
           {isExplorerOpen && (
-            <FileExplorer
-              onFileSelect={handleFileSelect}
-              currentDocumentId={id}
-            />
+            <div className="flex flex-col h-full">
+              <div className="flex-none p-2 border-b border-slate-700/50">
+                <div className="flex items-center justify-between">
+                  <button
+                    onClick={() => setShowAllFiles(!showAllFiles)}
+                    className="text-xs flex items-center gap-1.5 text-slate-300 hover:text-white bg-slate-800/80 px-2 py-1 rounded"
+                  >
+                    {showAllFiles ? (
+                      <>
+                        <FiFolder size={12} className="text-blue-400" /> View
+                        All Files
+                      </>
+                    ) : (
+                      <>
+                        <FiFolder size={12} className="text-purple-400" /> View
+                        Current Project
+                      </>
+                    )}
+                  </button>
+                </div>
+              </div>
+              <div className="flex-1 overflow-hidden">
+                <FileExplorer
+                  onFileSelect={handleFileSelect}
+                  currentDocumentId={id}
+                  currentFolderId={showAllFiles ? null : currentFolder}
+                  showAllFiles={showAllFiles}
+                  className="h-full"
+                />
+              </div>
+            </div>
           )}
         </motion.div>
 

@@ -25,6 +25,8 @@ import {
   FiTrendingUp,
   FiZap,
   FiArrowRight,
+  FiFolderPlus,
+  FiX,
 } from "react-icons/fi";
 import api from "../../lib/api.js";
 import Navbar from "../../components/layout/NavBar";
@@ -41,6 +43,8 @@ export default function Dashboard() {
     activityStats: null,
   });
   const [showNewDocumentModal, setShowNewDocumentModal] = useState(false);
+  const [showNewProjectModal, setShowNewProjectModal] = useState(false);
+  const [projectName, setProjectName] = useState("");
   const navigate = useNavigate();
 
   useEffect(() => {
@@ -73,7 +77,8 @@ export default function Dashboard() {
     }
   }, [currentuser]);
 
-  const handleCreateDocument = async (templateId) => {
+  // Update handleCreateDocument to support folder selection
+  const handleCreateDocument = async (templateId, folderId = null) => {
     try {
       let language = "javascript";
       let content = "// New document\n";
@@ -98,34 +103,64 @@ export default function Dashboard() {
         content = getDefaultContentForLanguage(language);
       }
 
-      if (!content || content.trim() === "") {
-        content = `// Default ${language} content\n`;
-      }
-
-      const documentData = {
+      setIsLoading(true); // FIXED: Changed setLoading to setIsLoading
+      const response = await api.post("/api/documents", {
         title,
         content,
         language,
-        isPublic: false,
-      };
+        folder: folderId, // Add folder ID if provided
+      });
 
-      console.log("Sending document data:", documentData);
-
-      const response = await api.post("/api/documents", documentData);
       navigate(`/documents/${response.data._id}`);
     } catch (error) {
       console.error("Error creating document:", error);
+      setError(
+        "Failed to create document. Network error or server is unreachable."
+      );
+    } finally {
+      setIsLoading(false); // FIXED: Changed setLoading to setIsLoading
+      setShowNewDocumentModal(false);
+    }
+  };
+
+  const handleFolderSelect = (folder) => {
+    navigate(`/folders/${folder._id}`);
+  };
+
+  const handleCreateProject = async () => {
+    try {
+      // Validate project name from the dialog input instead of showing a prompt
+      if (!projectName.trim()) {
+        setError("Project name cannot be empty");
+        return;
+      }
+
+      // For debugging - helps identify what's being sent to server
+      console.log("Creating project with name:", projectName);
+
+      const response = await api.post("/api/folders", {
+        name: projectName,
+        parentFolder: null, // Root level folder
+      });
+
+      // Reset project name and close modal
+      setProjectName("");
+      setShowNewProjectModal(false);
+
+      // Refresh dashboard data to show the new folder
+      fetchDashboardData();
+    } catch (error) {
+      console.error("Error creating project:", error);
+      // More detailed error handling
       if (error.response) {
-        console.error("Server error response:", error.response.data);
+        console.error("Server response:", error.response.data);
         setError(
-          `Failed to create document: ${
-            error.response.data.message || "Unknown server error"
+          `Failed to create project: ${
+            error.response.data.message || "Server error"
           }`
         );
       } else {
-        setError(
-          "Failed to create document. Network error or server is unreachable."
-        );
+        setError("Failed to create project. Please try again.");
       }
     }
   };
@@ -427,12 +462,20 @@ export default function Dashboard() {
                 />
               </div>
             </div>
-            <button
-              onClick={() => setShowNewDocumentModal(true)}
-              className="px-4 py-2 rounded-md text-sm bg-gradient-to-r from-blue-600 to-purple-600 text-white hover:from-blue-700 hover:to-purple-700 transition-all duration-300 flex items-center gap-2 shadow-lg shadow-blue-900/20"
-            >
-              <FiPlus className="text-white" /> New Document
-            </button>
+            <div className="flex items-center gap-2">
+              <button
+                onClick={() => setShowNewDocumentModal(true)}
+                className="px-4 py-2 rounded-md text-sm bg-gradient-to-r from-blue-600 to-purple-600 text-white hover:from-blue-700 hover:to-purple-700 transition-all duration-300 flex items-center gap-2 shadow-lg shadow-blue-900/20"
+              >
+                <FiPlus className="text-white" /> New Document
+              </button>
+              <button
+                onClick={() => setShowNewProjectModal(true)}
+                className="px-4 py-2 rounded-md text-sm bg-gradient-to-r from-purple-600 to-indigo-600 text-white hover:from-purple-700 hover:to-indigo-700 transition-all duration-300 flex items-center gap-2 shadow-lg shadow-indigo-900/20"
+              >
+                <FiFolder className="text-white" /> New Project
+              </button>
+            </div>
           </>
         }
       >
@@ -544,22 +587,116 @@ export default function Dashboard() {
           </motion.div>
 
           <div className="space-y-8">
-            {/* Top row with Explorer and Recent Documents side by side */}
+            {/* Projects Section */}
             <div className="flex flex-col lg:flex-row gap-8">
-              {/* Left column with file explorer - with fixed height */}
+              <div className="lg:w-full">
+                <motion.div
+                  initial={{ opacity: 0, y: 20 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  transition={{ duration: 0.5, delay: 0.1 }}
+                  className="bg-slate-800/50 rounded-xl border border-slate-700/50 shadow-xl overflow-hidden backdrop-blur-sm"
+                >
+                  <div className="px-6 py-5 bg-slate-800/70 border-b border-slate-700/70 flex justify-between items-center">
+                    <h3 className="text-lg font-medium text-white flex items-center gap-2">
+                      <FiFolder className="text-purple-400" /> Your Projects
+                    </h3>
+                    <button
+                      onClick={() => setShowNewProjectModal(true)}
+                      className="text-sm text-purple-400 hover:text-purple-300 transition-colors flex items-center gap-1"
+                    >
+                      <FiFolderPlus size={14} /> New Project
+                    </button>
+                  </div>
+
+                  <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 p-6">
+                    {dashboardData.folders &&
+                    dashboardData.folders.length > 0 ? (
+                      dashboardData.folders
+                        .filter((folder) => !folder.parentFolder) // Show only root folders
+                        .map((folder) => (
+                          <motion.div
+                            key={folder._id}
+                            whileHover={{
+                              y: -5,
+                              transition: { duration: 0.2 },
+                            }}
+                            className="group bg-slate-800 border border-slate-700 rounded-lg p-5 hover:bg-gradient-to-br hover:from-slate-800/80 hover:to-purple-900/30 hover:border-purple-700/40 transition-all duration-300 cursor-pointer"
+                            onClick={() => navigate(`/folders/${folder._id}`)}
+                          >
+                            <div className="h-12 w-12 rounded-lg bg-gradient-to-br from-purple-600/30 to-blue-600/30 border border-purple-700/30 flex items-center justify-center text-purple-400 mb-4 group-hover:from-purple-600/40 group-hover:to-blue-600/40 transition-all duration-300">
+                              <FiFolder size={24} />
+                            </div>
+                            <h4 className="text-white font-medium">
+                              {folder.name}
+                            </h4>
+                            <p className="text-sm text-slate-400 mt-1">
+                              {folder.documents?.length || 0} files
+                            </p>
+                            <div className="mt-4 pt-3 border-t border-slate-700/50 flex justify-between items-center">
+                              <span className="text-xs text-slate-500">
+                                Updated{" "}
+                                {new Date(
+                                  folder.updatedAt
+                                ).toLocaleDateString()}
+                              </span>
+                              <div className="flex space-x-1">
+                                <button
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    handleOpenFolderSharing(folder._id);
+                                  }}
+                                  className="p-1.5 rounded-md bg-slate-700/50 text-slate-400 hover:text-purple-400 hover:bg-slate-700"
+                                >
+                                  <FiUsers size={14} />
+                                </button>
+                              </div>
+                            </div>
+                          </motion.div>
+                        ))
+                    ) : (
+                      <div className="col-span-3 p-8 text-center">
+                        <div className="w-16 h-16 bg-slate-700/50 rounded-full mx-auto flex items-center justify-center mb-4">
+                          <FiFolder className="text-slate-400" size={24} />
+                        </div>
+                        <p className="text-slate-400">
+                          You don't have any projects yet.
+                        </p>
+                        <button
+                          onClick={() => setShowNewProjectModal(true)}
+                          className="mt-4 px-4 py-2 bg-gradient-to-r from-purple-600 to-blue-600 hover:from-purple-700 hover:to-blue-700 text-white rounded-md text-sm font-medium transition-all duration-300"
+                        >
+                          Create your first project
+                        </button>
+                      </div>
+                    )}
+                  </div>
+                </motion.div>
+              </div>
+            </div>
+
+            {/* First row: Files Explorer and Recent Documents */}
+            <div className="flex flex-col lg:flex-row gap-8">
+              {/* Left column - Files Explorer */}
               <div className="lg:w-1/3">
                 <div
                   className="bg-slate-800/50 rounded-xl border border-slate-700/50 shadow-xl overflow-hidden backdrop-blur-sm"
-                  style={{ maxHeight: "400px", height: "400px" }} // Set explicit height as well as maxHeight
+                  style={{ height: "280px" }}
                 >
+                  <div className="px-4 py-3 bg-slate-800/70 border-b border-slate-700/70">
+                    <h3 className="text-md font-medium text-white flex items-center gap-1.5">
+                      <FiFile className="text-blue-400" size={16} /> Files
+                      Explorer
+                    </h3>
+                  </div>
                   <FileExplorer
                     onFileSelect={(file) => navigate(`/documents/${file._id}`)}
-                    className="h-full overflow-y-auto" // Explicit y-axis overflow
+                    className="h-[calc(100%-46px)] overflow-y-auto"
+                    filesOnly={true}
                   />
                 </div>
               </div>
 
-              {/* Right column with just Recent Documents */}
+              {/* Right column - Recent Documents */}
               <div className="lg:w-2/3">
                 <motion.div
                   initial={{ opacity: 0, y: 20 }}
@@ -605,43 +742,68 @@ export default function Dashboard() {
               </div>
             </div>
 
-            {/* Centered Quick Templates below both Explorer and Recent Documents */}
-            <div className="max-w-4xl mx-auto">
-              <motion.div
-                initial={{ opacity: 0, y: 20 }}
-                animate={{ opacity: 1, y: 0 }}
-                transition={{ duration: 0.5, delay: 0.3 }}
-                className="bg-gradient-to-r from-blue-900/20 to-purple-900/20 rounded-xl shadow-xl overflow-hidden border border-blue-900/20 backdrop-blur-sm"
-              >
-                <div className="px-6 py-5 border-b border-blue-900/30 flex items-center gap-2">
-                  <FiCommand className="text-blue-400" size={20} />
-                  <h3 className="text-lg font-medium text-white">
-                    Quick Start Templates
-                  </h3>
-                </div>
-                <div className="p-6">
-                  <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
-                    {templates.map((template) => (
-                      <motion.div
-                        key={template.id}
-                        whileHover={{ y: -5, transition: { duration: 0.2 } }}
-                        className="group bg-slate-800/70 border border-slate-700/70 rounded-lg p-5 hover:bg-gradient-to-br hover:from-blue-900/40 hover:to-purple-900/40 hover:border-blue-700/50 transition-all duration-300 cursor-pointer"
-                        onClick={() => handleCreateDocument(template.id)}
-                      >
-                        <div className="h-12 w-12 rounded-lg bg-gradient-to-br from-blue-600/30 to-purple-600/30 border border-blue-700/30 flex items-center justify-center text-blue-400 mb-4 group-hover:from-blue-600/50 group-hover:to-purple-600/50 transition-all duration-300">
-                          {template.icon}
-                        </div>
-                        <h4 className="text-white font-medium">
-                          {template.name}
-                        </h4>
-                        <p className="text-sm text-slate-400 mt-1">
-                          {template.description}
-                        </p>
-                      </motion.div>
-                    ))}
+            {/* Second row: Folders Explorer and Quick Templates - truly parallel */}
+            <div className="flex flex-col lg:flex-row gap-8 mt-4">
+              {/* Left column - Folders Explorer */}
+              <div className="lg:w-1/3">
+                <div
+                  className="bg-slate-800/50 rounded-xl border border-slate-700/50 shadow-xl overflow-hidden backdrop-blur-sm"
+                  style={{ height: "280px" }}
+                >
+                  <div className="px-4 py-3 bg-slate-800/70 border-b border-slate-700/70">
+                    <h3 className="text-md font-medium text-white flex items-center gap-1.5">
+                      <FiFolder className="text-purple-400" size={16} /> Folders
+                      Explorer
+                    </h3>
                   </div>
+                  <FileExplorer
+                    onFileSelect={(file) => navigate(`/documents/${file._id}`)}
+                    onFolderSelect={handleFolderSelect}
+                    className="h-[calc(100%-46px)] overflow-y-auto"
+                    foldersOnly={true}
+                    showFolderOptions={true}
+                  />
                 </div>
-              </motion.div>
+              </div>
+
+              {/* Right column - Quick Templates */}
+              <div className="lg:w-2/3">
+                <motion.div
+                  initial={{ opacity: 0, y: 20 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  transition={{ duration: 0.5, delay: 0.3 }}
+                  className="bg-gradient-to-r from-blue-900/20 to-purple-900/20 rounded-xl shadow-xl overflow-hidden border border-blue-900/20 backdrop-blur-sm h-full"
+                >
+                  <div className="px-6 py-5 border-b border-blue-900/30 flex items-center gap-2">
+                    <FiCommand className="text-blue-400" size={20} />
+                    <h3 className="text-lg font-medium text-white">
+                      Quick Start Templates
+                    </h3>
+                  </div>
+                  <div className="p-6">
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                      {templates.map((template) => (
+                        <motion.div
+                          key={template.id}
+                          whileHover={{ y: -5, transition: { duration: 0.2 } }}
+                          className="group bg-slate-800/70 border border-slate-700/70 rounded-lg p-5 hover:bg-gradient-to-br hover:from-blue-900/40 hover:to-purple-900/40 hover:border-blue-700/50 transition-all duration-300 cursor-pointer"
+                          onClick={() => handleCreateDocument(template.id)}
+                        >
+                          <div className="h-12 w-12 rounded-lg bg-gradient-to-br from-blue-600/30 to-purple-600/30 border border-blue-700/30 flex items-center justify-center text-blue-400 mb-4 group-hover:from-blue-600/50 group-hover:to-purple-600/50 transition-all duration-300">
+                            {template.icon}
+                          </div>
+                          <h4 className="text-white font-medium">
+                            {template.name}
+                          </h4>
+                          <p className="text-sm text-slate-400 mt-1">
+                            {template.description}
+                          </p>
+                        </motion.div>
+                      ))}
+                    </div>
+                  </div>
+                </motion.div>
+              </div>
             </div>
           </div>
         </div>
@@ -717,6 +879,70 @@ export default function Dashboard() {
                 className="px-4 py-2 text-slate-300 hover:text-white transition-colors"
               >
                 Cancel
+              </button>
+            </div>
+          </motion.div>
+        </div>
+      )}
+
+      {/* New Project Modal */}
+      {showNewProjectModal && (
+        <div className="fixed inset-0 bg-black/70 flex items-center justify-center z-50 backdrop-blur-sm">
+          <motion.div
+            initial={{ opacity: 0, scale: 0.9 }}
+            animate={{ opacity: 1, scale: 1 }}
+            className="bg-slate-800 border border-slate-700 rounded-xl w-full max-w-md p-6 shadow-2xl"
+          >
+            <div className="flex items-center justify-between mb-6">
+              <h3 className="text-xl font-bold text-white flex items-center gap-2">
+                <FiFolderPlus className="text-purple-400" /> Create New Project
+              </h3>
+              <button
+                onClick={() => setShowNewProjectModal(false)}
+                className="text-slate-400 hover:text-white"
+              >
+                <FiX />
+              </button>
+            </div>
+
+            <div className="mb-6">
+              <label className="block text-sm font-medium text-slate-300 mb-2">
+                Project Name
+              </label>
+              <input
+                type="text"
+                className="w-full px-3 py-2 bg-slate-700 border border-slate-600 rounded-md text-white focus:outline-none focus:ring-1 focus:ring-purple-500"
+                placeholder="My Awesome Project"
+                value={projectName}
+                onChange={(e) => setProjectName(e.target.value)}
+              />
+            </div>
+
+            <div className="grid grid-cols-1 gap-4 mb-6">
+              <div className="bg-slate-700/50 p-4 rounded-lg border border-slate-600/50">
+                <h4 className="text-white font-medium flex items-center gap-2">
+                  <FiInfo className="text-purple-400" /> Project Structure
+                </h4>
+                <p className="text-sm text-slate-400 mt-2">
+                  Projects help you organize your files in folders. You can
+                  create multiple files within a project and nest folders for
+                  better organization.
+                </p>
+              </div>
+            </div>
+
+            <div className="flex justify-end gap-4">
+              <button
+                onClick={() => setShowNewProjectModal(false)}
+                className="px-4 py-2 text-slate-300 hover:text-white transition-colors"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={handleCreateProject}
+                className="px-4 py-2 bg-gradient-to-r from-purple-600 to-indigo-600 text-white rounded-md hover:from-purple-700 hover:to-indigo-700 transition-colors"
+              >
+                Create Project
               </button>
             </div>
           </motion.div>
@@ -877,8 +1103,6 @@ const getLanguageIcon = (language) => {
       );
   }
 };
-
-// Add these functions after the getLanguageIcon function
 
 // Map file extensions to language names
 const getLanguageFromExtension = (extension) => {

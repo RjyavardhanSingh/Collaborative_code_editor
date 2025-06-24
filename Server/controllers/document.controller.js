@@ -40,6 +40,9 @@ export const createDocument = async (req, res) => {
 
 export const getDocuments = async (req, res) => {
   try {
+    // Add some logging
+    console.log("Getting documents for user:", req.user._id);
+
     const documents = await Document.find({
       $or: [
         { owner: req.user._id },
@@ -52,8 +55,10 @@ export const getDocuments = async (req, res) => {
       .populate("lastEditedBy", "username avatar")
       .sort({ updatedAt: -1 });
 
+    console.log(`Found ${documents.length} documents`);
     res.json(documents);
   } catch (error) {
+    console.error("Error in getDocuments:", error);
     res.status(500).json({ message: error.message });
   }
 };
@@ -223,7 +228,6 @@ export const addCollaborator = async (req, res) => {
       permission,
       expiresAt: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000),
     });
-
 
     return res.status(201).json({
       message: "Invitation sent successfully",
