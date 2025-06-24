@@ -37,10 +37,8 @@ export default function FileExplorer({
   const [expandedFolders, setExpandedFolders] = useState({});
   const [showCreateFolder, setShowCreateFolder] = useState(false);
   const [currentParentFolder, setCurrentParentFolder] = useState(null);
-  const [contextMenu, setContextMenu] = useState({
-    visible: false,
-    x: 0,
-    y: 0,
+  const [activeMenu, setActiveMenu] = useState({
+    id: null,
     type: null,
     item: null,
   });
@@ -53,11 +51,6 @@ export default function FileExplorer({
   // Add state for folder sharing
   const [showFolderSharing, setShowFolderSharing] = useState(false);
   const [sharingFolderId, setSharingFolderId] = useState(null);
-
-  // Add refs for menu button and context menu
-  const menuButtonRef = useRef(null);
-  const contextMenuRef = useRef(null);
-  const isMenuOpeningRef = useRef(false);
 
   // Modified fetchFolderStructure to support filtering for files or folders only
   const fetchFolderStructure = async () => {
@@ -149,56 +142,23 @@ export default function FileExplorer({
     }
   };
 
-  // Replace your handleContextMenu function with this version
-  const handleContextMenu = (e, type, item) => {
-    e.preventDefault();
-    e.stopPropagation();
-
-    // Set a flag that we're trying to open the menu
-    isMenuOpeningRef.current = true;
-
-    // Update the state immediately instead of in a timeout
-    setContextMenu({
-      visible: true,
-      x: e.pageX,
-      y: e.pageY,
-      type,
-      item,
-    });
-
-    // Clear the flag after a short delay
-    setTimeout(() => {
-      isMenuOpeningRef.current = false;
-    }, 100);
-  };
-
-  // Replace your existing useEffect for document click handling
+  // Add this new useEffect to handle clicks outside the menu
   useEffect(() => {
-    fetchFolderStructure();
-
-    const handleDocumentClick = (e) => {
-      // Don't close if currently opening the menu
-      if (isMenuOpeningRef.current) return;
-
-      // Don't close if clicking the menu button
-      if (menuButtonRef.current && menuButtonRef.current.contains(e.target))
-        return;
-
-      // Don't close if clicking inside menu itself
-      if (contextMenuRef.current && contextMenuRef.current.contains(e.target))
-        return;
-
-      // Otherwise close the menu
-      if (contextMenu.visible) {
-        setContextMenu((prev) => ({ ...prev, visible: false }));
+    const handleOutsideClick = (e) => {
+      // If we have an active menu and clicked outside any menu button or menu
+      if (activeMenu.id && !e.target.closest(".menu-trigger, .context-menu")) {
+        setActiveMenu({ id: null, type: null, item: null });
       }
     };
 
-    document.addEventListener("mousedown", handleDocumentClick); // Use mousedown instead of click
-    return () => {
-      document.removeEventListener("mousedown", handleDocumentClick);
-    };
-  }, [contextMenu.visible, currentFolderId, showAllFiles, currentDocumentId]);
+    document.addEventListener("mousedown", handleOutsideClick);
+    return () => document.removeEventListener("mousedown", handleOutsideClick);
+  }, [activeMenu.id]);
+
+  // Replace existing fetchFolderStructure useEffect with this
+  useEffect(() => {
+    fetchFolderStructure();
+  }, [currentFolderId, showAllFiles, currentDocumentId]);
 
   // Build a tree structure of folders and files
   const buildFolderTree = (
@@ -293,13 +253,7 @@ export default function FileExplorer({
   };
 
   const handleCloseContextMenu = () => {
-    setContextMenu({
-      visible: false,
-      x: 0,
-      y: 0,
-      type: null,
-      item: null,
-    });
+    setActiveMenu({ id: null, type: null, item: null });
   };
 
   // Add folder delete function
@@ -365,7 +319,7 @@ export default function FileExplorer({
     }
   };
 
-  // Modify renderTreeItems to support folder options and filtering
+  // Replace the renderTreeItems function with this version
   const renderTreeItems = (items) => {
     return items
       .map((item) => {
@@ -408,10 +362,8 @@ export default function FileExplorer({
                         }
                       }}
                       onKeyDown={(e) => {
-                        if (e.key === "Enter") {
-                          if (newFolderName.trim()) {
-                            handleRenameFolder(item._id, newFolderName);
-                          }
+                        if (e.key === "Enter" && newFolderName.trim()) {
+                          handleRenameFolder(item._id, newFolderName);
                         } else if (e.key === "Escape") {
                           setIsRenaming(false);
                           setRenamingFolderId(null);
@@ -430,33 +382,83 @@ export default function FileExplorer({
                 {showFolderOptions && !isCurrentlyRenaming && (
                   <div className="relative">
                     <button
-                      ref={menuButtonRef}
-                      onMouseDown={(e) => {
+                      onClick={(e) => {
                         e.preventDefault();
                         e.stopPropagation();
 
-                        isMenuOpeningRef.current = true;
-
-                        // Set menu position based on the button's position
-                        const rect = e.currentTarget.getBoundingClientRect();
-                        setContextMenu({
-                          visible: true,
-                          x: rect.right,
-                          y: rect.top,
-                          type: "folder",
-                          item: item,
-                        });
-
-                        // Reset the flag after a short delay
-                        setTimeout(() => {
-                          isMenuOpeningRef.current = false;
-                        }, 100);
+                        // Toggle the menu for this item
+                        if (activeMenu.id === item._id) {
+                          setActiveMenu({ id: null, type: null, item: null });
+                        } else {
+                          setActiveMenu({
+                            id: item._id,
+                            type: "folder",
+                            item: item,
+                          });
+                        }
                       }}
-                      className="p-1 text-slate-400 hover:text-white rounded hover:bg-slate-700/50 opacity-100 group-hover:opacity-100 transition-opacity"
+                      className="p-1 text-slate-400 hover:text-white rounded hover:bg-slate-700/50 opacity-100 menu-trigger"
                       title="Folder options"
                     >
                       <FiMoreVertical size={14} />
                     </button>
+
+                    {/* Inline Menu - Only shown for this specific folder when active */}
+                    {activeMenu.id === item._id && (
+                      <div className="absolute right-0 top-full mt-1 bg-slate-800 shadow-xl rounded border border-slate-700 py-1 z-50 context-menu min-w-[150px]">
+                        <button
+                          className="w-full text-left px-4 py-1.5 text-sm text-slate-200 hover:bg-slate-700 flex items-center gap-2"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            if (onFolderSelect) {
+                              onFolderSelect(item);
+                              setActiveMenu({
+                                id: null,
+                                type: null,
+                                item: null,
+                              });
+                            }
+                          }}
+                        >
+                          <FiFolder size={14} className="text-purple-400" />
+                          Open in Editor
+                        </button>
+
+                        <button
+                          className="w-full text-left px-4 py-1.5 text-sm text-slate-200 hover:bg-slate-700 flex items-center gap-2"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            setIsRenaming(true);
+                            setRenamingFolderId(item._id);
+                            setNewFolderName(item.name);
+                            setActiveMenu({ id: null, type: null, item: null });
+                          }}
+                        >
+                          <FiEdit2 size={14} className="text-blue-400" />
+                          Rename
+                        </button>
+
+                        <hr className="border-slate-700 my-1" />
+
+                        <button
+                          className="w-full text-left px-4 py-1.5 text-sm text-red-400 hover:bg-slate-700 flex items-center gap-2"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            if (
+                              window.confirm(
+                                `Are you sure you want to delete the folder "${item.name}"?`
+                              )
+                            ) {
+                              handleDeleteFolder(item._id);
+                            }
+                            setActiveMenu({ id: null, type: null, item: null });
+                          }}
+                        >
+                          <FiTrash2 size={14} />
+                          Delete Folder
+                        </button>
+                      </div>
+                    )}
                   </div>
                 )}
               </div>
@@ -528,18 +530,17 @@ export default function FileExplorer({
 
   // Update the context menu render to include folder options
   const renderContextMenu = () => {
-    if (!contextMenu.visible) return null;
+    if (!activeMenu.id) return null;
 
-    if (contextMenu.type === "folder") {
+    if (activeMenu.type === "folder") {
       return (
         <div
-          ref={contextMenuRef} // Apply the ref here
-          className="fixed bg-slate-800 shadow-xl rounded border border-slate-700 py-1 z-50 context-menu"
-          style={{ top: contextMenu.y, left: contextMenu.x }}
+          className="fixed bg-slate-800 shadow-xl rounded border border-slate-700 py-1 z-50"
+          style={{ top: activeMenu.y, left: activeMenu.x }}
         >
           <button
             className="w-full text-left px-4 py-1.5 text-sm text-slate-200 hover:bg-slate-700 flex items-center gap-2"
-            onClick={() => handleFolderAction("open", contextMenu.item)}
+            onClick={() => handleFolderAction("open", activeMenu.item)}
           >
             <FiFolder size={14} className="text-purple-400" />
             Open in Editor
@@ -547,7 +548,7 @@ export default function FileExplorer({
 
           <button
             className="w-full text-left px-4 py-1.5 text-sm text-slate-200 hover:bg-slate-700 flex items-center gap-2"
-            onClick={() => handleFolderAction("rename", contextMenu.item)}
+            onClick={() => handleFolderAction("rename", activeMenu.item)}
           >
             <FiEdit2 size={14} className="text-blue-400" />
             Rename
@@ -557,7 +558,7 @@ export default function FileExplorer({
 
           <button
             className="w-full text-left px-4 py-1.5 text-sm text-red-400 hover:bg-slate-700 flex items-center gap-2"
-            onClick={() => handleFolderAction("delete", contextMenu.item)}
+            onClick={() => handleFolderAction("delete", activeMenu.item)}
           >
             <FiTrash2 size={14} />
             Delete Folder
@@ -567,16 +568,16 @@ export default function FileExplorer({
     }
 
     // Keep existing document context menu
-    if (contextMenu.type === "document") {
+    if (activeMenu.type === "document") {
       return (
         <div
           className="fixed bg-slate-800 shadow-xl rounded border border-slate-700 py-1 z-50"
-          style={{ top: contextMenu.y, left: contextMenu.x }}
+          style={{ top: activeMenu.y, left: activeMenu.x }}
         >
           <button
             className="w-full text-left px-4 py-1.5 text-sm text-slate-200 hover:bg-slate-700 flex items-center gap-2"
             onClick={() => {
-              onFileSelect(contextMenu.item);
+              onFileSelect(activeMenu.item);
               handleCloseContextMenu();
             }}
           >
@@ -666,9 +667,6 @@ export default function FileExplorer({
           </div>
         )}
       </div>
-
-      {/* Context Menu */}
-      {renderContextMenu()}
 
       {/* Create Folder Dialog */}
       {showCreateFolder && (

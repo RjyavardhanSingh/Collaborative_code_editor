@@ -17,7 +17,8 @@ export const createFolder = async (req, res) => {
     await Activity.create({
       user: req.user._id,
       action: "created",
-      metadata: { type: "folder", name },
+      documentId: null, // Add this line to provide a null documentId
+      metadata: { type: "folder", name, folderId: folder._id },
     });
 
     res.status(201).json(folder);

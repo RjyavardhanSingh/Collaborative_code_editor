@@ -40,6 +40,7 @@ export default function Dashboard() {
     ownedDocuments: [],
     sharedDocuments: [],
     pinnedDocuments: [],
+    folders: [], // Make sure folders is initialized
     activityStats: null,
   });
   const [showNewDocumentModal, setShowNewDocumentModal] = useState(false);
@@ -47,31 +48,39 @@ export default function Dashboard() {
   const [projectName, setProjectName] = useState("");
   const navigate = useNavigate();
 
+  // Move fetchDashboardData outside useEffect so it can be called from anywhere in the component
+  const fetchDashboardData = async () => {
+    try {
+      setIsLoading(true);
+      setError(null);
+
+      const documentResponse = await api.get(
+        `/api/users/${currentuser._id}/documents`
+      );
+
+      const foldersResponse = await api.get("/api/folders");
+
+      const analyticsResponse = await api.get("/api/analytics/usage");
+
+      const pinnedDocs = documentResponse.data.owned.slice(0, 2);
+
+      setDashboardData({
+        ownedDocuments: documentResponse.data.owned || [],
+        sharedDocuments: documentResponse.data.shared || [],
+        pinnedDocuments: pinnedDocs,
+        folders: foldersResponse.data || [],
+        activityStats: analyticsResponse.data,
+      });
+    } catch (error) {
+      console.error("Error fetching dashboard data:", error);
+      setError("Failed to load dashboard data. Please try again later.");
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  // Now use the fetchDashboardData function in useEffect
   useEffect(() => {
-    const fetchDashboardData = async () => {
-      try {
-        setIsLoading(true);
-        setError(null);
-        const documentResponse = await api.get(
-          `/api/users/${currentuser._id}/documents`
-        );
-        const analyticsResponse = await api.get("/api/analytics/usage");
-        const pinnedDocs = documentResponse.data.owned.slice(0, 2);
-
-        setDashboardData({
-          ownedDocuments: documentResponse.data.owned,
-          sharedDocuments: documentResponse.data.shared,
-          pinnedDocuments: pinnedDocs,
-          activityStats: analyticsResponse.data,
-        });
-      } catch (error) {
-        console.error("Error fetching dashboard data:", error);
-        setError("Failed to load dashboard data. Please try again later.");
-      } finally {
-        setIsLoading(false);
-      }
-    };
-
     if (currentuser?._id) {
       fetchDashboardData();
     }
