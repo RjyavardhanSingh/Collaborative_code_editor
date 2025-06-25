@@ -6,16 +6,21 @@ import Invitation from "../models/invitation.model.js";
 
 export const createDocument = async (req, res) => {
   try {
-    const { title, content, language, isPublic, folderId } = req.body;
+    // Extract all fields, including folder
+    const { title, content, language, folder } = req.body;
+
+    console.log("Creating document with data:", {
+      title,
+      language,
+      folderID: folder || "null", // Debug log
+    });
 
     const document = await Document.create({
       title,
       content: content || "",
-      language,
+      language: language || "plaintext",
+      folder: folder || null, // Make sure it's explicitly null if not provided
       owner: req.user._id,
-      isPublic: isPublic || false,
-      lastEditedBy: req.user._id,
-      folderId,
     });
 
     await Version.create({
@@ -34,6 +39,7 @@ export const createDocument = async (req, res) => {
 
     res.status(201).json(document);
   } catch (error) {
+    console.error("Error creating document:", error);
     res.status(500).json({ message: error.message });
   }
 };

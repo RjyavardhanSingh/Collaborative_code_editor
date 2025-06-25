@@ -267,8 +267,47 @@ export default function FileExplorer({
     }
   };
 
-  // Add createDocument function
-  const handleCreateDocument = async (folderId) => {
+  // Helper function to determine language from file extension
+  const getLanguageFromExtension = (ext) => {
+    const extensionMap = {
+      js: "javascript",
+      jsx: "javascript",
+      ts: "typescript",
+      tsx: "typescript",
+      html: "html",
+      css: "css",
+      json: "json",
+      md: "markdown",
+      py: "python",
+      java: "java",
+      c: "c",
+      cpp: "cpp",
+      cs: "csharp",
+    };
+    return extensionMap[ext] || "plaintext";
+  };
+
+  // Helper function to provide default content for new files
+  const getDefaultContentForLanguage = (lang) => {
+    switch (lang) {
+      case "javascript":
+        return "// JavaScript code\nconsole.log('Hello, world!');\n";
+      case "html":
+        return "<!DOCTYPE html>\n<html>\n<head>\n  <title>New Document</title>\n</head>\n<body>\n  <h1>Hello, world!</h1>\n</body>\n</html>";
+      case "css":
+        return "/* CSS styles */\nbody {\n  font-family: sans-serif;\n}\n";
+      case "python":
+        return "# Python script\ndef main():\n    print('Hello, world!')\n\nif __name__ == '__main__':\n    main()";
+      case "typescript":
+        return "// TypeScript code\ninterface Person {\n    name: string;\n    age: number;\n}\n\nconst greeting = (person: Person): string => {\n    return `Hello, ${person.name}!`;\n};\n\nconsole.log(greeting({ name: 'World', age: 0 }));";
+      default:
+        return "";
+    }
+  };
+
+  // Update the handleCreateDocument function with proper folder ID handling
+
+  const handleCreateDocument = async (folderId = null) => {
     try {
       const filename = prompt(
         "Enter filename with extension (e.g. main.js, index.html)"
@@ -279,14 +318,31 @@ export default function FileExplorer({
       const language = getLanguageFromExtension(extension);
       const content = getDefaultContentForLanguage(language);
 
-      await api.post("/api/documents", {
+      // Determine which folder to use - explicitly passed ID or current folder
+      const targetFolderId = folderId || currentFolderId;
+
+      console.log("Creating file in folder:", targetFolderId); // Debug log
+
+      console.log("API request payload:", {
         title: filename,
         content,
         language,
-        folder: folderId,
+        folder: targetFolderId,
       });
 
-      // Refresh the explorer
+      const response = await api.post("/api/documents", {
+        title: filename,
+        content,
+        language,
+        folder: targetFolderId, // This ensures the folder ID is sent properly
+      });
+
+      // If onFileSelect is defined, navigate to the new file
+      if (onFileSelect && response.data && response.data._id) {
+        onFileSelect(response.data);
+      }
+
+      // Refresh the explorer to show the new file
       fetchFolderStructure();
     } catch (error) {
       console.error("Error creating document:", error);
@@ -422,6 +478,19 @@ export default function FileExplorer({
                         >
                           <FiFolder size={14} className="text-purple-400" />
                           Open in Editor
+                        </button>
+
+                        {/* New File button - added to folder context menu */}
+                        <button
+                          className="w-full text-left px-4 py-1.5 text-sm text-slate-200 hover:bg-slate-700 flex items-center gap-2"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            handleCreateDocument(item._id);
+                            setActiveMenu({ id: null, type: null, item: null });
+                          }}
+                        >
+                          <FiFile size={14} className="text-blue-400" />
+                          New File
                         </button>
 
                         <button
@@ -611,6 +680,13 @@ export default function FileExplorer({
             <FiFolder className="text-blue-400" size={16} /> Explorer
           </h3>
           <div className="flex items-center space-x-1">
+            <button
+              onClick={() => handleCreateDocument(currentFolderId)}
+              className="p-1 text-slate-400 hover:text-white rounded"
+              title="New File"
+            >
+              <FiFile size={16} />
+            </button>
             <button
               onClick={() => handleNewFolder(currentFolderId)}
               className="p-1 text-slate-400 hover:text-white rounded"

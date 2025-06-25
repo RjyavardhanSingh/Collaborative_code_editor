@@ -54,7 +54,9 @@ const documentSchema = new mongoose.Schema(
       },
     ],
   },
-  { timestamps: true }
+  {
+    timestamps: true,
+  }
 );
 
 const Document = mongoose.model("Document", documentSchema);
