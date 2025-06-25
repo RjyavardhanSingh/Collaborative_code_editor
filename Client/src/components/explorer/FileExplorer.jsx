@@ -100,8 +100,9 @@ export default function FileExplorer({
 
       // If a specific folder is selected and we're not showing all files
       if (currentFolderId && !showAllFiles) {
+        // Convert IDs to strings for reliable comparison
         filteredDocuments = documents.filter(
-          (doc) => doc.folder === currentFolderId
+          (doc) => doc.folder?.toString() === currentFolderId?.toString()
         );
       }
 
@@ -191,9 +192,9 @@ export default function FileExplorer({
             return folder;
           });
 
-        // Add documents that belong to this folder
+        // Compare string versions of IDs
         const folderDocuments = documents
-          .filter((doc) => doc.folder === folderId)
+          .filter((doc) => doc.folder?.toString() === folderId?.toString())
           .map((doc) => ({ ...doc, type: "document" }));
 
         return [...children, ...folderDocuments];
@@ -231,8 +232,10 @@ export default function FileExplorer({
     }
   };
 
-  // Add new folder creation function
+  // Update the handleNewFolder function to properly handle folder creation
+
   const handleNewFolder = async (parentId = null) => {
+    console.log("Creating new folder with parent ID:", parentId);
     setCurrentParentFolder(parentId);
     setShowCreateFolder(true);
   };
@@ -318,32 +321,28 @@ export default function FileExplorer({
       const language = getLanguageFromExtension(extension);
       const content = getDefaultContentForLanguage(language);
 
-      // Determine which folder to use - explicitly passed ID or current folder
-      const targetFolderId = folderId || currentFolderId;
+      // Convert to string to ensure consistent format
+      const targetFolderId = (folderId || currentFolderId)?.toString();
 
-      console.log("Creating file in folder:", targetFolderId); // Debug log
+      console.log("Creating file in folder:", targetFolderId);
 
-      console.log("API request payload:", {
-        title: filename,
-        content,
-        language,
-        folder: targetFolderId,
-      });
-
+      // Ensure folder ID is explicitly sent as a string
       const response = await api.post("/api/documents", {
         title: filename,
         content,
         language,
-        folder: targetFolderId, // This ensures the folder ID is sent properly
+        folder: targetFolderId || null, // Explicitly set null if no folder
       });
+
+      console.log("File created response:", response.data);
+
+      // Wait for the folder structure to refresh before navigating
+      await fetchFolderStructure();
 
       // If onFileSelect is defined, navigate to the new file
       if (onFileSelect && response.data && response.data._id) {
         onFileSelect(response.data);
       }
-
-      // Refresh the explorer to show the new file
-      fetchFolderStructure();
     } catch (error) {
       console.error("Error creating document:", error);
       setError("Failed to create document");
@@ -435,99 +434,75 @@ export default function FileExplorer({
                   )}
                 </div>
 
-                {showFolderOptions && !isCurrentlyRenaming && (
-                  <div className="relative">
+                {!isCurrentlyRenaming && (
+                  <div className="flex items-center ml-auto">
                     <button
                       onClick={(e) => {
                         e.preventDefault();
                         e.stopPropagation();
-
-                        // Toggle the menu for this item
-                        if (activeMenu.id === item._id) {
-                          setActiveMenu({ id: null, type: null, item: null });
-                        } else {
-                          setActiveMenu({
-                            id: item._id,
-                            type: "folder",
-                            item: item,
-                          });
+                        if (onFolderSelect) {
+                          onFolderSelect(item);
                         }
                       }}
-                      className="p-1 text-slate-400 hover:text-white rounded hover:bg-slate-700/50 opacity-100 menu-trigger"
-                      title="Folder options"
+                      className="p-1 text-slate-400 hover:text-blue-400 rounded"
+                      title="Open in Editor"
                     >
-                      <FiMoreVertical size={14} />
+                      <FiFolder size={14} />
                     </button>
-
-                    {/* Inline Menu - Only shown for this specific folder when active */}
-                    {activeMenu.id === item._id && (
-                      <div className="absolute right-0 top-full mt-1 bg-slate-800 shadow-xl rounded border border-slate-700 py-1 z-50 context-menu min-w-[150px]">
-                        <button
-                          className="w-full text-left px-4 py-1.5 text-sm text-slate-200 hover:bg-slate-700 flex items-center gap-2"
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            if (onFolderSelect) {
-                              onFolderSelect(item);
-                              setActiveMenu({
-                                id: null,
-                                type: null,
-                                item: null,
-                              });
-                            }
-                          }}
-                        >
-                          <FiFolder size={14} className="text-purple-400" />
-                          Open in Editor
-                        </button>
-
-                        {/* New File button - added to folder context menu */}
-                        <button
-                          className="w-full text-left px-4 py-1.5 text-sm text-slate-200 hover:bg-slate-700 flex items-center gap-2"
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            handleCreateDocument(item._id);
-                            setActiveMenu({ id: null, type: null, item: null });
-                          }}
-                        >
-                          <FiFile size={14} className="text-blue-400" />
-                          New File
-                        </button>
-
-                        <button
-                          className="w-full text-left px-4 py-1.5 text-sm text-slate-200 hover:bg-slate-700 flex items-center gap-2"
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            setIsRenaming(true);
-                            setRenamingFolderId(item._id);
-                            setNewFolderName(item.name);
-                            setActiveMenu({ id: null, type: null, item: null });
-                          }}
-                        >
-                          <FiEdit2 size={14} className="text-blue-400" />
-                          Rename
-                        </button>
-
-                        <hr className="border-slate-700 my-1" />
-
-                        <button
-                          className="w-full text-left px-4 py-1.5 text-sm text-red-400 hover:bg-slate-700 flex items-center gap-2"
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            if (
-                              window.confirm(
-                                `Are you sure you want to delete the folder "${item.name}"?`
-                              )
-                            ) {
-                              handleDeleteFolder(item._id);
-                            }
-                            setActiveMenu({ id: null, type: null, item: null });
-                          }}
-                        >
-                          <FiTrash2 size={14} />
-                          Delete Folder
-                        </button>
-                      </div>
-                    )}
+                    <button
+                      onClick={(e) => {
+                        e.preventDefault();
+                        e.stopPropagation();
+                        // Create file directly in this folder
+                        handleCreateDocument(item._id);
+                      }}
+                      className="p-1 text-slate-400 hover:text-green-400 rounded"
+                      title="New File"
+                    >
+                      <FiFile size={14} />
+                    </button>
+                    <button
+                      onClick={(e) => {
+                        e.preventDefault();
+                        e.stopPropagation();
+                        // Create subfolder directly in this folder
+                        handleNewFolder(item._id);
+                      }}
+                      className="p-1 text-slate-400 hover:text-purple-400 rounded"
+                      title="New Subfolder"
+                    >
+                      <FiFolderPlus size={14} />
+                    </button>
+                    <button
+                      onClick={(e) => {
+                        e.preventDefault();
+                        e.stopPropagation();
+                        setIsRenaming(true);
+                        setRenamingFolderId(item._id);
+                        setNewFolderName(item.name);
+                      }}
+                      className="p-1 text-slate-400 hover:text-yellow-400 rounded"
+                      title="Rename"
+                    >
+                      <FiEdit2 size={14} />
+                    </button>
+                    <button
+                      onClick={(e) => {
+                        e.preventDefault();
+                        e.stopPropagation();
+                        if (
+                          window.confirm(
+                            `Are you sure you want to delete the folder "${item.name}"?`
+                          )
+                        ) {
+                          handleDeleteFolder(item._id);
+                        }
+                      }}
+                      className="p-1 text-slate-400 hover:text-red-400 rounded"
+                      title="Delete"
+                    >
+                      <FiTrash2 size={14} />
+                    </button>
                   </div>
                 )}
               </div>
