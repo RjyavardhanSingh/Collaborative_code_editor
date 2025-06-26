@@ -28,6 +28,16 @@ import {
   FiFolderPlus,
   FiX,
 } from "react-icons/fi";
+import {
+  SiJavascript,
+  SiTypescript,
+  SiHtml5,
+  SiCss3,
+  SiPython,
+  SiMarkdown,
+  SiJson,
+} from "react-icons/si";
+import { DiJava } from "react-icons/di";
 import api from "../../lib/api.js";
 import Navbar from "../../components/layout/NavBar";
 import FileExplorer from "../../components/explorer/FileExplorer";
@@ -1065,49 +1075,59 @@ const formatLanguage = (lang) => {
 };
 
 const getLanguageIcon = (language) => {
-  const iconSize = 16;
-
   switch (language.toLowerCase()) {
     case "javascript":
       return (
         <div className="w-8 h-8 rounded-md flex items-center justify-center bg-yellow-400/20 border border-yellow-500/30 text-yellow-400">
-          JS
+          <SiJavascript size={16} />
         </div>
       );
     case "typescript":
       return (
         <div className="w-8 h-8 rounded-md flex items-center justify-center bg-blue-400/20 border border-blue-500/30 text-blue-400">
-          TS
+          <SiTypescript size={16} />
         </div>
       );
     case "html":
       return (
         <div className="w-8 h-8 rounded-md flex items-center justify-center bg-orange-400/20 border border-orange-500/30 text-orange-400">
-          <FiCode size={iconSize} />
+          <SiHtml5 size={16} />
         </div>
       );
     case "css":
       return (
         <div className="w-8 h-8 rounded-md flex items-center justify-center bg-indigo-400/20 border border-indigo-500/30 text-indigo-400">
-          <FiCode size={iconSize} />
+          <SiCss3 size={16} />
         </div>
       );
     case "python":
       return (
         <div className="w-8 h-8 rounded-md flex items-center justify-center bg-green-400/20 border border-green-500/30 text-green-400">
-          PY
+          <SiPython size={16} />
+        </div>
+      );
+    case "java":
+      return (
+        <div className="w-8 h-8 rounded-md flex items-center justify-center bg-red-400/20 border border-red-500/30 text-red-400">
+          <DiJava size={16} />
         </div>
       );
     case "markdown":
       return (
         <div className="w-8 h-8 rounded-md flex items-center justify-center bg-purple-400/20 border border-purple-500/30 text-purple-400">
-          MD
+          <SiMarkdown size={16} />
+        </div>
+      );
+    case "json":
+      return (
+        <div className="w-8 h-8 rounded-md flex items-center justify-center bg-amber-400/20 border border-amber-500/30 text-amber-400">
+          <SiJson size={16} />
         </div>
       );
     default:
       return (
         <div className="w-8 h-8 rounded-md flex items-center justify-center bg-slate-700 border border-slate-600 text-slate-400">
-          <FiFile size={iconSize} />
+          <FiFile size={16} />
         </div>
       );
   }

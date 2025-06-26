@@ -1,19 +1,34 @@
 import React, { useState, useEffect, useRef } from "react";
 import { motion } from "framer-motion";
-import { useAuth } from "../../context/AuthProvider"; // Add this import
+import { useAuth } from "../../context/AuthProvider";
 import {
   FiFolder,
   FiFile,
   FiFolderPlus,
   FiChevronRight,
   FiChevronDown,
-  FiPlusCircle,
-  FiMoreVertical,
   FiTrash2,
   FiEdit2,
   FiRefreshCw,
-  FiUsers,
+  FiCode,
 } from "react-icons/fi";
+import {
+  SiJavascript,
+  SiTypescript,
+  SiHtml5,
+  SiCss3,
+  SiPython,
+  SiC,
+  SiCplusplus,
+  SiRuby,
+  SiPhp,
+  SiGo,
+  SiRust,
+  SiJson,
+  SiMarkdown,
+  // SiCsharp is not available, removed it
+} from "react-icons/si";
+import { DiJava } from "react-icons/di";
 import api from "../../lib/api";
 import FolderCreateDialog from "../folders/FolderCreateDialog";
 import FolderSharingDialog from "../folders/FolderSharingDialog";
@@ -374,6 +389,59 @@ export default function FileExplorer({
     }
   };
 
+  // Add this function before the renderTreeItems function
+
+  const getFileIcon = (filename) => {
+    const extension = filename.split(".").pop().toLowerCase();
+
+    switch (extension) {
+      case "js":
+        return <SiJavascript className="text-yellow-400" size={14} />;
+      case "jsx":
+        return <SiJavascript className="text-yellow-400" size={14} />;
+      case "ts":
+        return <SiTypescript className="text-blue-400" size={14} />;
+      case "tsx":
+        return <SiTypescript className="text-blue-400" size={14} />;
+      case "html":
+        return <SiHtml5 className="text-orange-500" size={14} />;
+      case "css":
+        return <SiCss3 className="text-blue-500" size={14} />;
+      case "py":
+        return <SiPython className="text-blue-500" size={14} />;
+      case "java":
+        return <DiJava className="text-red-500" size={14} />;
+      case "cpp":
+      case "cc":
+      case "cxx":
+        return <SiCplusplus className="text-blue-600" size={14} />;
+      case "cs":
+        // Use a text label since SiCsharp isn't available
+        return (
+          <span className="bg-purple-800 text-xs px-1 rounded text-white">
+            C#
+          </span>
+        );
+      case "c":
+        return <SiC className="text-blue-600" size={14} />;
+      case "md":
+      case "markdown":
+        return <SiMarkdown className="text-white" size={14} />;
+      case "json":
+        return <SiJson className="text-yellow-300" size={14} />;
+      case "rb":
+        return <SiRuby className="text-red-600" size={14} />;
+      case "php":
+        return <SiPhp className="text-purple-400" size={14} />;
+      case "go":
+        return <SiGo className="text-blue-400" size={14} />;
+      case "rs":
+        return <SiRust className="text-orange-600" size={14} />;
+      default:
+        return <FiFile size={14} />;
+    }
+  };
+
   // Replace the renderTreeItems function with this version
   const renderTreeItems = (items) => {
     return items
@@ -526,8 +594,8 @@ export default function FileExplorer({
               }`}
               onClick={() => onFileSelect(item)}
             >
-              <span className="mr-1.5 text-slate-400">
-                <FiFile size={14} />
+              <span className="mr-1.5 text-slate-400 flex items-center justify-center">
+                {getFileIcon(item.title)}
               </span>
               <span className="text-slate-200 text-sm truncate">
                 {item.title}
