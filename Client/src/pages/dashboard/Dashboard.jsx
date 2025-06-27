@@ -16,7 +16,6 @@ import {
   FiFile,
   FiClock,
   FiGlobe,
-  FiLock,
   FiCodepen,
   FiCommand,
   FiCopy,
@@ -41,6 +40,7 @@ import { DiJava } from "react-icons/di";
 import api from "../../lib/api.js";
 import Navbar from "../../components/layout/NavBar";
 import FileExplorer from "../../components/explorer/FileExplorer";
+import FolderSharingDialog from "../../components/folders/FolderSharingDialog";
 
 export default function Dashboard() {
   const { currentuser } = useAuth();
@@ -50,27 +50,74 @@ export default function Dashboard() {
     ownedDocuments: [],
     sharedDocuments: [],
     pinnedDocuments: [],
-    folders: [], // Make sure folders is initialized
+    folders: [],
     activityStats: null,
   });
   const [showNewDocumentModal, setShowNewDocumentModal] = useState(false);
   const [showNewProjectModal, setShowNewProjectModal] = useState(false);
   const [projectName, setProjectName] = useState("");
+  const [selectedFolder, setSelectedFolder] = useState(null);
+  const [showFolderSharingDialog, setShowFolderSharingDialog] = useState(false);
+  const [selectedFolderId, setSelectedFolderId] = useState(null);
   const navigate = useNavigate();
 
-  // Move fetchDashboardData outside useEffect so it can be called from anywhere in the component
   const fetchDashboardData = async () => {
     try {
       setIsLoading(true);
       setError(null);
 
+      // Get user documents
       const documentResponse = await api.get(
         `/api/users/${currentuser._id}/documents`
       );
 
+      // Get all folders
       const foldersResponse = await api.get("/api/folders");
 
+      // Get analytics data
       const analyticsResponse = await api.get("/api/analytics/usage");
+
+      // Get all user's documents
+      const allDocuments = documentResponse.data.owned || [];
+
+      // Debug folder and document structures
+      console.log("Document count:", allDocuments.length);
+      console.log("Folder count:", foldersResponse.data.length);
+
+      // Create a document map for each folder to handle different ID formats
+      const documentsByFolder = {};
+
+      allDocuments.forEach((doc) => {
+        if (!doc.folder) return;
+
+        // Handle different folder ID formats
+        let folderId;
+        if (typeof doc.folder === "object" && doc.folder !== null) {
+          folderId = doc.folder._id || doc.folder.id;
+        } else {
+          folderId = doc.folder;
+        }
+
+        if (folderId) {
+          const key = String(folderId);
+          if (!documentsByFolder[key]) {
+            documentsByFolder[key] = [];
+          }
+          documentsByFolder[key].push(doc);
+        }
+      });
+
+      // Process folders with the document map
+      const processedFolders = (foldersResponse.data || []).map((folder) => {
+        const folderId = String(folder._id);
+        const folderDocuments = documentsByFolder[folderId] || [];
+
+        return {
+          ...folder,
+          documentCount: folderDocuments.length,
+          documents: folderDocuments,
+        };
+      });
 
       const pinnedDocs = documentResponse.data.owned.slice(0, 2);
 
@@ -78,7 +125,7 @@ export default function Dashboard() {
         ownedDocuments: documentResponse.data.owned || [],
         sharedDocuments: documentResponse.data.shared || [],
         pinnedDocuments: pinnedDocs,
-        folders: foldersResponse.data || [],
+        folders: processedFolders,
         activityStats: analyticsResponse.data,
       });
     } catch (error) {
@@ -89,14 +136,12 @@ export default function Dashboard() {
     }
   };
 
-  // Now use the fetchDashboardData function in useEffect
   useEffect(() => {
     if (currentuser?._id) {
       fetchDashboardData();
     }
   }, [currentuser]);
 
-  // Update handleCreateDocument to support folder selection
   const handleCreateDocument = async (templateId, folderId = null) => {
     try {
       let language = "javascript";
@@ -122,12 +167,12 @@ export default function Dashboard() {
         content = getDefaultContentForLanguage(language);
       }
 
-      setIsLoading(true); // FIXED: Changed setLoading to setIsLoading
+      setIsLoading(true);
       const response = await api.post("/api/documents", {
         title,
         content,
         language,
-        folder: folderId, // Add folder ID if provided
+        folder: folderId,
       });
 
       navigate(`/documents/${response.data._id}`);
@@ -137,7 +182,7 @@ export default function Dashboard() {
         "Failed to create document. Network error or server is unreachable."
       );
     } finally {
-      setIsLoading(false); // FIXED: Changed setLoading to setIsLoading
+      setIsLoading(false);
       setShowNewDocumentModal(false);
     }
   };
@@ -148,29 +193,24 @@ export default function Dashboard() {
 
   const handleCreateProject = async () => {
     try {
-      // Validate project name from the dialog input instead of showing a prompt
       if (!projectName.trim()) {
         setError("Project name cannot be empty");
         return;
       }
 
-      // For debugging - helps identify what's being sent to server
       console.log("Creating project with name:", projectName);
 
       const response = await api.post("/api/folders", {
         name: projectName,
-        parentFolder: null, // Root level folder
+        parentFolder: null,
       });
 
-      // Reset project name and close modal
       setProjectName("");
       setShowNewProjectModal(false);
 
-      // Refresh dashboard data to show the new folder
       fetchDashboardData();
     } catch (error) {
       console.error("Error creating project:", error);
-      // More detailed error handling
       if (error.response) {
         console.error("Server response:", error.response.data);
         setError(
@@ -639,8 +679,8 @@ export default function Dashboard() {
                     {dashboardData.folders &&
                     dashboardData.folders.length > 0 ? (
                       dashboardData.folders
-                        .filter((folder) => !folder.parentFolder) // Show only root folders
-                        .slice(0, 3) // Show only 3 most recent projects
+                        .filter((folder) => !folder.parentFolder)
+                        .slice(0, 3)
                         .map((folder) => (
                           <motion.div
                             key={folder._id}
@@ -657,9 +697,6 @@ export default function Dashboard() {
                             <h4 className="text-white font-medium">
                               {folder.name}
                             </h4>
-                            <p className="text-sm text-slate-400 mt-1">
-                              {folder.documents?.length || 0} files
-                            </p>
                             <div className="mt-4 pt-3 border-t border-slate-700/50 flex justify-between items-center">
                               <span className="text-xs text-slate-500">
                                 Updated{" "}
@@ -671,7 +708,9 @@ export default function Dashboard() {
                                 <button
                                   onClick={(e) => {
                                     e.stopPropagation();
-                                    handleOpenFolderSharing(folder._id);
+                                    // Replace handleOpenFolderSharing with the proper function call
+                                    setSelectedFolderId(folder._id);
+                                    setShowFolderSharingDialog(true);
                                   }}
                                   className="p-1.5 rounded-md bg-slate-700/50 text-slate-400 hover:text-purple-400 hover:bg-slate-700"
                                 >
@@ -729,7 +768,6 @@ export default function Dashboard() {
                   />
                 </div>
 
-                {/* Folders Explorer - immediately below Files Explorer */}
                 <div
                   className="bg-slate-800/50 rounded-xl border border-slate-700/50 shadow-xl overflow-hidden backdrop-blur-sm"
                   style={{ height: "280px" }}
@@ -742,12 +780,14 @@ export default function Dashboard() {
                   </div>
                   <FileExplorer
                     onFileSelect={(file) => navigate(`/documents/${file._id}`)}
-                    onFolderSelect={handleFolderSelect}
+                    onFolderSelect={(folder) => setSelectedFolder(folder)} // Just select the folder
+                    onFolderOpen={handleFolderClick} // Add this new prop for navigation
                     className="h-[calc(100%-46px)] overflow-y-auto"
                     showAllFiles={true}
                     showFolderOptions={true}
                     hideHeader={true}
                     excludeGlobalFiles={true}
+                    dashboardMode={true} // Add this prop to enable dashboard-specific behavior
                   />
                 </div>
               </div>
@@ -978,110 +1018,22 @@ export default function Dashboard() {
           </motion.div>
         </div>
       )}
+
+      {/* Folder Sharing Dialog */}
+      {showFolderSharingDialog && (
+        <FolderSharingDialog
+          folderId={selectedFolderId}
+          onClose={() => {
+            setShowFolderSharingDialog(false);
+            setSelectedFolderId(null);
+          }}
+        />
+      )}
     </div>
   );
 }
 
-const documentListItem = (doc, isPinned = false) => (
-  <motion.div
-    key={doc._id}
-    initial={{ opacity: 0 }}
-    animate={{ opacity: 1 }}
-    className="group hover:bg-slate-700/30 transition-colors"
-  >
-    <div className="p-4">
-      <div className="flex justify-between items-start">
-        <div className="flex items-start gap-3">
-          <div className="mt-1">{getLanguageIcon(doc.language)}</div>
-          <div>
-            <Link
-              to={`/documents/${doc._id}`}
-              className="text-blue-400 font-medium hover:text-blue-300 flex items-center gap-2 transition-colors"
-            >
-              <span>{doc.title}</span>
-              {doc.isPublic && (
-                <span className="text-xs bg-blue-900/40 text-blue-300 px-2 py-0.5 rounded-full border border-blue-800/50">
-                  <FiGlobe className="inline mr-1" size={10} /> Public
-                </span>
-              )}
-            </Link>
-            <div className="flex items-center mt-1 gap-2">
-              <span className="text-xs font-medium text-slate-400">
-                {formatLanguage(doc.language)}
-              </span>
-              <span className="text-[10px] text-slate-500">•</span>
-              <span className="text-xs text-slate-500 flex items-center">
-                <FiClock className="mr-1" size={12} />{" "}
-                {formatDate(doc.updatedAt)}
-              </span>
-            </div>
-          </div>
-        </div>
-        <motion.button
-          whileHover={{
-            rotate: isPinned ? -15 : 15,
-            transition: { duration: 0.2 },
-          }}
-          className={`text-slate-400 hover:text-${
-            isPinned ? "yellow" : "slate"
-          }-300`}
-          onClick={() =>
-            console.log(`${isPinned ? "Unpin" : "Pin"} document ${doc._id}`)
-          }
-        >
-          <FiStar
-            className={isPinned ? "fill-yellow-400 text-yellow-400" : ""}
-          />
-        </motion.button>
-      </div>
-    </div>
-    <div className="py-2 px-4 flex justify-between items-center border-t border-slate-700/50 bg-slate-800/30">
-      <div className="flex items-center gap-3">
-        <motion.button
-          whileHover={{ y: -2 }}
-          className="text-xs font-medium text-slate-400 hover:text-white flex items-center gap-1.5 bg-slate-700/50 hover:bg-slate-700 transition-all px-3 py-1.5 rounded-md"
-          onClick={() => navigate(`/documents/${doc._id}`)}
-        >
-          <FiEdit className="text-blue-400" size={14} />
-          Edit
-        </motion.button>
-        <motion.button
-          whileHover={{ y: -2 }}
-          className="text-xs font-medium text-slate-400 hover:text-white flex items-center gap-1.5 bg-slate-700/50 hover:bg-slate-700 transition-all px-3 py-1.5 rounded-md"
-          onClick={() => navigate(`/documents/${doc._id}/preview`)}
-        >
-          <FiEye className="text-purple-400" size={14} />
-          Preview
-        </motion.button>
-        <motion.button
-          whileHover={{ y: -2 }}
-          className="text-xs font-medium text-slate-400 hover:text-white flex items-center gap-1.5 bg-slate-700/50 hover:bg-slate-700 transition-all px-3 py-1.5 rounded-md"
-          onClick={() => {
-            navigator.clipboard.writeText(
-              `${window.location.origin}/documents/${doc._id}`
-            );
-            // Show toast notification or feedback
-          }}
-        >
-          <FiCopy className="text-slate-400" size={14} />
-          Copy Link
-        </motion.button>
-      </div>
-      <motion.button
-        whileHover={{ rotate: 15 }}
-        className="text-xs font-medium text-slate-400 hover:text-white bg-slate-700/50 hover:bg-slate-700 p-2 rounded-md transition-all"
-        onClick={() => console.log(`Share document ${doc._id}`)}
-      >
-        <FiUsers size={14} />
-      </motion.button>
-    </div>
-  </motion.div>
-);
-
-// Add these new functions
-
 const formatLanguage = (lang) => {
-  // Capitalize first letter
   return lang.charAt(0).toUpperCase() + lang.slice(1);
 };
 
@@ -1144,7 +1096,6 @@ const getLanguageIcon = (language) => {
   }
 };
 
-// Map file extensions to language names
 const getLanguageFromExtension = (extension) => {
   const extensionMap = {
     js: "javascript",
@@ -1162,7 +1113,6 @@ const getLanguageFromExtension = (extension) => {
   return extensionMap[extension] || "plaintext";
 };
 
-// Get default filename for templates
 const getDefaultFilename = (templateId) => {
   switch (templateId) {
     case "js":
@@ -1178,7 +1128,6 @@ const getDefaultFilename = (templateId) => {
   }
 };
 
-// Get template content based on template ID
 const getTemplateContent = (templateId) => {
   switch (templateId) {
     case "js":
@@ -1285,7 +1234,6 @@ Returns a list of resources.
   }
 };
 
-// Get default content for a language
 const getDefaultContentForLanguage = (language) => {
   switch (language.toLowerCase()) {
     case "javascript":
@@ -1303,4 +1251,8 @@ const getDefaultContentForLanguage = (language) => {
     default:
       return "// New document\n";
   }
+};
+
+const handleFolderClick = (folder) => {
+  navigate(`/folders/${folder._id}`);
 };

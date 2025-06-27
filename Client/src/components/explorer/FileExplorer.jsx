@@ -36,6 +36,7 @@ import FolderSharingDialog from "../folders/FolderSharingDialog";
 export default function FileExplorer({
   onFileSelect,
   onFolderSelect,
+  onFolderOpen, // Add this new prop
   className,
   sharedOnly = false,
   currentFolderId = null,
@@ -46,7 +47,10 @@ export default function FileExplorer({
   showFolderOptions = false,
   hideHeader = false,
   excludeGlobalFiles = false,
-  showNestedFiles = false, // Add this new prop
+  showNestedFiles = false,
+  
+  selectionMode = false,
+  dashboardMode = false,
 }) {
   const { currentuser } = useAuth();
   const [folderTree, setFolderTree] = useState([]);
@@ -69,6 +73,10 @@ export default function FileExplorer({
   // Add state for folder sharing
   const [showFolderSharing, setShowFolderSharing] = useState(false);
   const [sharingFolderId, setSharingFolderId] = useState(null);
+
+  // Add a new state variable for the selected folder
+  const [selectedFolder, setSelectedFolder] = useState(null);
+  const [selectedFile, setSelectedFile] = useState(null);
 
   // Modified fetchFolderStructure to support filtering for files or folders only
   const fetchFolderStructure = async () => {
@@ -439,12 +447,22 @@ export default function FileExplorer({
     }
   };
 
-  // Toggle folder expansion
-  const toggleFolder = (folderId) => {
+  // Update the toggleFolder function to also select the folder and handle selection mode
+
+  // Modified toggleFolder function
+  const toggleFolder = (folder) => {
     setExpandedFolders((prev) => ({
       ...prev,
-      [folderId]: !prev[folderId],
+      [folder._id]: !prev[folder._id],
     }));
+
+    // Always select the folder when toggled
+    setSelectedFolder(folder);
+
+    // If selectionMode is true, just select the folder without navigation
+    if (onFolderSelect) {
+      onFolderSelect(folder);
+    }
   };
 
   // Add rename folder functionality
@@ -525,28 +543,58 @@ export default function FileExplorer({
           const isExpanded = expandedFolders[item._id];
           const isCurrentlyRenaming =
             renamingFolderId === item._id && isRenaming;
+          const isSelected = selectedFolder && selectedFolder._id === item._id;
 
           return (
             <div key={item._id} className="select-none">
-              <div className="flex items-center justify-between py-1 px-2 hover:bg-slate-700/50 rounded">
-                <div
-                  className={`flex items-center cursor-pointer flex-grow ${
-                    currentFolderId === item._id ? "bg-slate-700/70" : ""
-                  }`}
-                  onClick={() => toggleFolder(item._id)}
+              <div
+                className={`flex items-center py-1 px-2 hover:bg-slate-700/50 rounded ${
+                  isSelected ? "bg-slate-700/70" : ""
+                }`}
+              >
+                {/* Arrow for expand/collapse - only toggles expansion */}
+                <span 
+                  className="mr-1 text-slate-400 cursor-pointer"
+                  onClick={(e) => {
+                    e.stopPropagation(); // Prevent folder selection
+                    setExpandedFolders((prev) => ({
+                      ...prev,
+                      [item._id]: !prev[item._id],
+                    }));
+                  }}
                 >
-                  <span className="mr-1 text-slate-400">
-                    {isExpanded ? (
-                      <FiChevronDown size={14} />
-                    ) : (
-                      <FiChevronRight size={14} />
-                    )}
-                  </span>
+                  {isExpanded ? (
+                    <FiChevronDown size={14} />
+                  ) : (
+                    <FiChevronRight size={14} />
+                  )}
+                </span>
+                
+                {/* Folder icon and name - handles selection and navigation */}
+                <div
+                  className="flex items-center cursor-pointer flex-grow"
+                  onClick={(e) => {
+                    // Clear file selection when selecting a folder
+                    setSelectedFile(null);
+                    
+                    // First, select the folder
+                    if (onFolderSelect) {
+                      onFolderSelect(item);
+                      setSelectedFolder(item);
+                    }
+                    
+                    // In dashboard mode, also navigate to folder editor
+                    if (dashboardMode && onFolderOpen) {
+                      onFolderOpen(item);
+                    }
+                  }}
+                >
                   <span className="mr-1.5 text-purple-400">
                     <FiFolder size={14} />
                   </span>
 
                   {isCurrentlyRenaming ? (
+                    // Renaming input - keep this the same
                     <input
                       type="text"
                       value={newFolderName}
@@ -576,78 +624,6 @@ export default function FileExplorer({
                     </span>
                   )}
                 </div>
-
-                {!isCurrentlyRenaming && (
-                  <div className="flex items-center ml-auto">
-                    <button
-                      onClick={(e) => {
-                        e.preventDefault();
-                        e.stopPropagation();
-                        if (onFolderSelect) {
-                          onFolderSelect(item);
-                        }
-                      }}
-                      className="p-1 text-slate-400 hover:text-blue-400 rounded"
-                      title="Open in Editor"
-                    >
-                      <FiFolder size={14} />
-                    </button>
-                    <button
-                      onClick={(e) => {
-                        e.preventDefault();
-                        e.stopPropagation();
-                        // Create file directly in this folder
-                        handleCreateDocument(item._id);
-                      }}
-                      className="p-1 text-slate-400 hover:text-green-400 rounded"
-                      title="New File"
-                    >
-                      <FiFile size={14} />
-                    </button>
-                    <button
-                      onClick={(e) => {
-                        e.preventDefault();
-                        e.stopPropagation();
-                        // Create subfolder directly in this folder
-                        handleNewFolder(item._id);
-                      }}
-                      className="p-1 text-slate-400 hover:text-purple-400 rounded"
-                      title="New Subfolder"
-                    >
-                      <FiFolderPlus size={14} />
-                    </button>
-                    <button
-                      onClick={(e) => {
-                        e.preventDefault();
-                        e.stopPropagation();
-                        setIsRenaming(true);
-                        setRenamingFolderId(item._id);
-                        setNewFolderName(item.name);
-                      }}
-                      className="p-1 text-slate-400 hover:text-yellow-400 rounded"
-                      title="Rename"
-                    >
-                      <FiEdit2 size={14} />
-                    </button>
-                    <button
-                      onClick={(e) => {
-                        e.preventDefault();
-                        e.stopPropagation();
-                        if (
-                          window.confirm(
-                            `Are you sure you want to delete the folder "${item.name}"?`
-                          )
-                        ) {
-                          handleDeleteFolder(item._id);
-                        }
-                      }}
-                      className="p-1 text-slate-400 hover:text-red-400 rounded"
-                      title="Delete"
-                    >
-                      <FiTrash2 size={14} />
-                    </button>
-                  </div>
-                )}
               </div>
 
               {isExpanded && item.children && item.children.length > 0 && (
@@ -691,16 +667,27 @@ export default function FileExplorer({
             </div>
           );
         } else if (!foldersOnly) {
-          // Only render document items if not in foldersOnly mode
+          // Document rendering - update to handle selection
           return (
             <div
               key={item._id}
               className={`flex items-center py-1 px-2 hover:bg-slate-700/50 rounded cursor-pointer ${
                 currentDocumentId === item._id
                   ? "bg-blue-500/20 text-blue-400"
+                  : selectedFile && selectedFile._id === item._id
+                  ? "bg-slate-700/70" 
                   : ""
               }`}
-              onClick={() => onFileSelect(item)}
+              onClick={() => {
+                // Clear folder selection when selecting a file
+                setSelectedFolder(null);
+                
+                // Set as selected file
+                setSelectedFile(item);
+                
+                // Also perform the regular file selection action
+                if (onFileSelect) onFileSelect(item);
+              }}
             >
               <span className="mr-1.5 text-slate-400 flex items-center justify-center">
                 {getFileIcon(item.title)}
@@ -715,6 +702,33 @@ export default function FileExplorer({
         return null; // For TypeScript safety
       })
       .filter(Boolean); // Filter out null items
+  };
+
+  // Add handlers for file operations
+  const handleRenameFile = async (fileId, newName) => {
+    try {
+      await api.put(`/api/documents/${fileId}`, {
+        title: newName,
+        // We only update the title, preserving other fields
+      });
+      
+      setSelectedFile(null);
+      fetchFolderStructure();
+    } catch (err) {
+      console.error("Failed to rename file:", err);
+      setError("Failed to rename file");
+    }
+  };
+
+  const handleDeleteFile = async (fileId) => {
+    try {
+      await api.delete(`/api/documents/${fileId}`);
+      setSelectedFile(null);
+      fetchFolderStructure();
+    } catch (err) {
+      console.error("Failed to delete file:", err);
+      setError("Failed to delete file");
+    }
   };
 
   // Add handleFolderAction for the folder context menu
@@ -822,9 +836,125 @@ export default function FileExplorer({
     return null;
   };
 
-  // Update the return statement to use the renderContextMenu function
+  // Update the renderActionToolbar function to handle both folders and files
+  const renderActionToolbar = () => {
+    // Show folder actions when a folder is selected
+    if (selectedFolder && showFolderOptions) {
+      return (
+        <div className="flex items-center justify-end mb-1 px-2 py-1 bg-slate-800/50 rounded">
+          <div className="text-xs text-slate-400 mr-auto truncate">
+            {selectedFolder.name}
+          </div>
+
+          <button
+            onClick={() => handleCreateDocument(selectedFolder._id)}
+            className="p-1 text-slate-400 hover:text-green-400 rounded mr-1"
+            title="New File"
+          >
+            <FiFile size={12} />
+          </button>
+
+          <button
+            onClick={() => handleNewFolder(selectedFolder._id)}
+            className="p-1 text-slate-400 hover:text-purple-400 rounded mr-1"
+            title="New Subfolder"
+          >
+            <FiFolderPlus size={12} />
+          </button>
+
+          <button
+            onClick={() => {
+              setIsRenaming(true);
+              setRenamingFolderId(selectedFolder._id);
+              setNewFolderName(selectedFolder.name);
+            }}
+            className="p-1 text-slate-400 hover:text-yellow-400 rounded mr-1"
+            title="Rename"
+          >
+            <FiEdit2 size={12} />
+          </button>
+
+          <button
+            onClick={() => {
+              if (
+                window.confirm(
+                  `Are you sure you want to delete the folder "${selectedFolder.name}"?`
+                )
+              ) {
+                handleDeleteFolder(selectedFolder._id);
+              }
+            }}
+            className="p-1 text-slate-400 hover:text-red-400 rounded"
+            title="Delete"
+          >
+            <FiTrash2 size={12} />
+          </button>
+        </div>
+      );
+    }
+    
+    // Show file actions when a file is selected and not in dashboard mode
+    if (selectedFile && !dashboardMode) {
+      return (
+        <div className="flex items-center justify-end mb-1 px-2 py-1 bg-slate-800/50 rounded">
+          <div className="text-xs text-slate-400 mr-auto truncate">
+            {selectedFile.title}
+          </div>
+          
+          <button
+            onClick={() => {
+              if (onFileSelect) onFileSelect(selectedFile);
+            }}
+            className="p-1 text-slate-400 hover:text-blue-400 rounded mr-1"
+            title="Open File"
+          >
+            <FiCode size={12} />
+          </button>
+          
+          <button
+            onClick={() => {
+              const newName = prompt("Enter new file name", selectedFile.title);
+              if (newName && newName !== selectedFile.title) {
+                handleRenameFile(selectedFile._id, newName);
+              }
+            }}
+            className="p-1 text-slate-400 hover:text-yellow-400 rounded mr-1"
+            title="Rename File"
+          >
+            <FiEdit2 size={12} />
+          </button>
+          
+          <button
+            onClick={() => {
+              if (window.confirm(`Are you sure you want to delete the file "${selectedFile.title}"?`)) {
+                handleDeleteFile(selectedFile._id);
+              }
+            }}
+            className="p-1 text-slate-400 hover:text-red-400 rounded"
+            title="Delete File"
+          >
+            <FiTrash2 size={12} />
+          </button>
+        </div>
+      );
+    }
+    
+    return null;
+  };
+
+  // Add click handler to clear selection when clicking empty space
   return (
-    <div className={`h-full flex flex-col ${className || ""}`}>
+    <div 
+      className={`h-full flex flex-col ${className || ""}`}
+      onClick={(e) => {
+        // Only clear if clicking directly on the container (not on children)
+        if (e.target === e.currentTarget) {
+          setSelectedFile(null);
+          setSelectedFolder(null);
+        }
+      }}
+    >
+      {/* Header section remains unchanged */}
       {!hideHeader && !foldersOnly && !filesOnly && (
         <div className="flex-none p-2 border-b border-slate-700/50 flex justify-between items-center">
           <h3 className="text-white font-medium flex items-center gap-1.5">
@@ -857,6 +987,10 @@ export default function FileExplorer({
       )}
 
       <div className="flex-1 overflow-y-auto p-2">
+        {/* Render the action toolbar for either the selected folder or file */}
+        {renderActionToolbar()}
+        
+        {/* Existing explorer content */}
         {loading ? (
           <div className="flex items-center justify-center h-full">
             <FiRefreshCw className="animate-spin text-blue-400 mr-2" />

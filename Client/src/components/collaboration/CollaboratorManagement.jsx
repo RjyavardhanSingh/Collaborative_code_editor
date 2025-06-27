@@ -11,10 +11,15 @@ export default function CollaboratorManagement({
   currentuser,
   onClose,
   onInviteClick,
+  isFolder = false, // New prop to handle folder-specific behavior
 }) {
   const [editingId, setEditingId] = useState(null);
   const [editPermission, setEditPermission] = useState("");
   const [error, setError] = useState(null);
+
+  const apiPath = isFolder
+    ? `/api/folders/${documentId}/collaborators/`
+    : `/api/documents/${documentId}/collaborators/`;
 
   const getRandomColor = (userId) => {
     const colors = [
@@ -78,9 +83,7 @@ export default function CollaboratorManagement({
   const handleRemoveCollaborator = async (collaboratorId) => {
     try {
       setError(null);
-      await api.delete(
-        `/api/documents/${documentId}/collaborators/${collaboratorId}`
-      );
+      await api.delete(`${apiPath}${collaboratorId}`);
       setCollaborators((prev) =>
         prev.filter((c) => c.user._id !== collaboratorId)
       );
@@ -108,7 +111,7 @@ export default function CollaboratorManagement({
       initial={{ x: 300, opacity: 0 }}
       animate={{ x: 0, opacity: 1 }}
       exit={{ x: 300, opacity: 0 }}
-      className="absolute top-0 right-0 h-full w-[300px] border-l border-slate-700 bg-slate-800 overflow-y-auto shadow-xl z-10"
+      className="absolute top-16 right-0 h-[calc(100%-4rem)] w-[300px] border-l border-slate-700 bg-slate-800 overflow-y-auto shadow-xl z-10"
     >
       <div className="p-4">
         <div className="flex items-center justify-between mb-4">

@@ -17,8 +17,12 @@ import {
   FiDownload,
   FiMaximize,
   FiMinimize,
+  FiX,
 } from "react-icons/fi";
 import logo from "../../assets/logo.png";
+import { FiMessageSquare } from "react-icons/fi";
+import CollaboratorManagement from "../../components/collaboration/CollaboratorManagement";
+import { io } from "socket.io-client";
 
 export default function FolderEditor() {
   const { id } = useParams();
@@ -209,6 +213,84 @@ export default function FolderEditor() {
     }
   };
 
+  // Collaborator and chat state management
+  const [isCollaboratorsOpen, setIsCollaboratorsOpen] = useState(false);
+  const [isChatOpen, setIsChatOpen] = useState(false);
+  const [collaborators, setCollaborators] = useState([]);
+  const [activeUsers, setActiveUsers] = useState([]);
+  const [messages, setMessages] = useState([]);
+  const [newMessage, setNewMessage] = useState("");
+  const [unreadMessageCount, setUnreadMessageCount] = useState(0);
+  const socketRef = useRef(null);
+  const messageContainerRef = useRef(null);
+
+  // Add this function to handle share button click
+  const handleShareFolder = () => {
+    setIsChatOpen(false);
+    setIsCollaboratorsOpen(!isCollaboratorsOpen);
+  };
+
+  // Add this function to handle chat opening
+  const handleOpenChat = () => {
+    setIsCollaboratorsOpen(false);
+    setIsChatOpen(!isChatOpen);
+    if (!isChatOpen) {
+      setUnreadMessageCount(0);
+    }
+  };
+
+  // Add this function to send messages
+  const handleSendMessage = () => {
+    if (!newMessage.trim() || !socketRef.current) return;
+
+    socketRef.current.emit("send-message", {
+      content: newMessage,
+      folderId: folder._id,
+      sender: {
+        _id: currentuser._id,
+        username: currentuser.username,
+      },
+    });
+
+    setNewMessage("");
+  };
+
+  // Socket connection and event handling
+  useEffect(() => {
+    if (!folder) return;
+
+    const socketUrl =
+      import.meta.env.VITE_SOCKET_URL || "http://localhost:5000";
+    socketRef.current = io(socketUrl, {
+      withCredentials: true,
+      query: { folderId: folder._id },
+      auth: { token: localStorage.getItem("authToken") },
+    });
+
+    socketRef.current.emit("join-folder", { folderId: folder._id });
+
+    socketRef.current.on("new-message", (message) => {
+      setMessages((prevMessages) => [...prevMessages, message]);
+      if (!isChatOpen) {
+        setUnreadMessageCount((prev) => prev + 1);
+      }
+    });
+
+    socketRef.current.on("user-joined", ({ user, users }) => {
+      setActiveUsers(users);
+    });
+
+    socketRef.current.on("user-left", ({ userId, users }) => {
+      setActiveUsers(users);
+    });
+
+    return () => {
+      if (socketRef.current) {
+        socketRef.current.disconnect();
+      }
+    };
+  }, [folder?._id, isChatOpen]);
+
   // Determine the navbar actions based on context
   const navbarActions = (
     <>
@@ -270,11 +352,16 @@ export default function FolderEditor() {
 
       {/* Share folder button */}
       <button
-        onClick={() => console.log("Share folder", folder?._id)}
-        className="p-2 ml-2 rounded text-slate-400 hover:text-white hover:bg-slate-700"
-        title="Share Folder"
+        onClick={handleShareFolder}
+        className={`p-2 rounded ${
+          isCollaboratorsOpen
+            ? "bg-blue-600 text-white"
+            : "text-slate-400 hover:text-white hover:bg-slate-700"
+        }`}
+        title="Share Project"
       >
         <FiUsers />
+        {/* Optional - add a badge for invitation count like in document editor */}
       </button>
 
       {/* Export folder content */}
@@ -312,6 +399,24 @@ export default function FolderEditor() {
         className="px-4 py-1.5 ml-2 rounded-md text-sm bg-gradient-to-r from-blue-600 to-purple-600 text-white hover:from-blue-700 hover:to-purple-700 transition-all flex items-center gap-2"
       >
         <FiPlus /> New File
+      </button>
+
+      {/* Chat button - always visible */}
+      <button
+        onClick={handleOpenChat}
+        className={`p-2 rounded relative ${
+          isChatOpen
+            ? "bg-blue-600 text-white"
+            : "text-slate-400 hover:text-white hover:bg-slate-700"
+        }`}
+        title="Project Chat"
+      >
+        <FiMessageSquare />
+        {unreadMessageCount > 0 && (
+          <span className="absolute -top-1 -right-1 bg-red-500 text-white text-xs rounded-full w-4 h-4 flex items-center justify-center">
+            {unreadMessageCount}
+          </span>
+        )}
       </button>
     </>
   );
@@ -381,11 +486,16 @@ export default function FolderEditor() {
 
             {/* Share folder button */}
             <button
-              onClick={() => console.log("Share folder", folder?._id)}
-              className="p-2 ml-2 rounded text-slate-400 hover:text-white hover:bg-slate-700"
-              title="Share Folder"
+              onClick={handleShareFolder}
+              className={`p-2 rounded ${
+                isCollaboratorsOpen
+                  ? "bg-blue-600 text-white"
+                  : "text-slate-400 hover:text-white hover:bg-slate-700"
+              }`}
+              title="Share Project"
             >
               <FiUsers />
+              {/* Optional - add a badge for invitation count like in document editor */}
             </button>
 
             {/* Export folder content */}
@@ -423,6 +533,24 @@ export default function FolderEditor() {
               className="px-4 py-1.5 ml-2 rounded-md text-sm bg-gradient-to-r from-blue-600 to-purple-600 text-white hover:from-blue-700 hover:to-purple-700 transition-all flex items-center gap-2"
             >
               <FiPlus /> New File
+            </button>
+
+            {/* Chat button - always visible */}
+            <button
+              onClick={handleOpenChat}
+              className={`p-2 rounded relative ${
+                isChatOpen
+                  ? "bg-blue-600 text-white"
+                  : "text-slate-400 hover:text-white hover:bg-slate-700"
+              }`}
+              title="Project Chat"
+            >
+              <FiMessageSquare />
+              {unreadMessageCount > 0 && (
+                <span className="absolute -top-1 -right-1 bg-red-500 text-white text-xs rounded-full w-4 h-4 flex items-center justify-center">
+                  {unreadMessageCount}
+                </span>
+              )}
             </button>
           </>
         }
@@ -462,10 +590,10 @@ export default function FolderEditor() {
                     navigate(`/folders/${folder._id}`);
                   }}
                   currentFolderId={id}
-                  showAllFiles={true} // Change this from false to true
+                  showAllFiles={true} // Show all files
                   currentDocumentId={selectedFile?._id}
                   className="h-full"
-                  showFolderOptions={true}
+                  showFolderOptions={true} // Enable folder options
                   hideHeader={true}
                   excludeGlobalFiles={true}
                 />
@@ -542,6 +670,110 @@ export default function FolderEditor() {
           )}
         </div>
       </div>
+
+      {/* Collaborator management modal */}
+      {isCollaboratorsOpen && (
+        <CollaboratorManagement
+          documentId={folder._id} // You may need to adapt this component to work with folders
+          collaborators={collaborators}
+          setCollaborators={setCollaborators}
+          activeUsers={activeUsers}
+          currentuser={currentuser}
+          onClose={() => setIsCollaboratorsOpen(false)}
+          onInviteClick={() => {
+            setIsCollaboratorsOpen(false);
+            // Open invitation modal or use FolderSharingDialog here
+          }}
+          isFolder={true} // Add this prop to handle folder-specific logic
+        />
+      )}
+
+      {/* Chat interface - conditionally render based on isChatOpen state */}
+      {isChatOpen && (
+        <motion.div
+          initial={{ x: 300, opacity: 0 }}
+          animate={{ x: 0, opacity: 1 }}
+          exit={{ x: 300, opacity: 0 }}
+          className="absolute top-0 right-0 h-full w-[300px] border-l border-slate-700 bg-slate-800 flex flex-col shadow-xl z-10"
+        >
+          <div className="p-4 border-b border-slate-700 flex justify-between items-center">
+            <h2 className="text-white font-medium">Project Chat</h2>
+            <button
+              onClick={() => setIsChatOpen(false)}
+              className="text-slate-400 hover:text-white"
+            >
+              <FiX />
+            </button>
+          </div>
+
+          <div
+            ref={messageContainerRef}
+            className="flex-1 overflow-y-auto p-4 space-y-4"
+          >
+            {messages.length === 0 ? (
+              <p className="text-slate-400 text-center text-sm">
+                No messages yet. Start a conversation!
+              </p>
+            ) : (
+              messages.map((message, idx) => (
+                <div
+                  key={idx}
+                  className={`flex ${
+                    message.sender._id === currentuser?._id
+                      ? "justify-end"
+                      : "justify-start"
+                  }`}
+                >
+                  <div
+                    className={`max-w-[80%] rounded-lg p-3 ${
+                      message.sender._id === currentuser?._id
+                        ? "bg-blue-600 text-white"
+                        : "bg-slate-700 text-slate-200"
+                    }`}
+                  >
+                    {message.sender._id !== currentuser?._id && (
+                      <p className="text-xs font-bold mb-1">
+                        {message.sender.username}
+                      </p>
+                    )}
+                    <p>{message.content}</p>
+                    <p className="text-xs opacity-70 text-right mt-1">
+                      {new Date(message.timestamp).toLocaleTimeString([], {
+                        hour: "2-digit",
+                        minute: "2-digit",
+                      })}
+                    </p>
+                  </div>
+                </div>
+              ))
+            )}
+          </div>
+
+          <div className="p-4 border-t border-slate-700">
+            <div className="flex">
+              <input
+                type="text"
+                value={newMessage}
+                onChange={(e) => setNewMessage(e.target.value)}
+                placeholder="Type a message..."
+                className="flex-1 bg-slate-700 text-white rounded-l px-3 py-2 focus:outline-none"
+                onKeyDown={(e) => {
+                  if (e.key === "Enter" && !e.shiftKey) {
+                    e.preventDefault();
+                    handleSendMessage();
+                  }
+                }}
+              />
+              <button
+                onClick={handleSendMessage}
+                className="bg-blue-600 text-white px-3 py-2 rounded-r hover:bg-blue-700"
+              >
+                Send
+              </button>
+            </div>
+          </div>
+        </motion.div>
+      )}
     </div>
   );
 }

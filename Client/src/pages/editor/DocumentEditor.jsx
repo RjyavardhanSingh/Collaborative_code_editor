@@ -1131,6 +1131,7 @@ export default function DocumentEditor() {
                   className="h-full"
                   filterGlobalOnly={!currentFolder} // Show only global files when document is global
                   filesOnly={!currentFolder} // Show only files when document is global
+                  showFolderOptions={true} // Enable folder options
                 />
               </div>
             </div>
