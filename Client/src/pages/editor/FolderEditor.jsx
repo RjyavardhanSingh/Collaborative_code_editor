@@ -7,12 +7,16 @@ import api from "../../lib/api.js";
 import Navbar from "../../components/layout/NavBar";
 import FileExplorer from "../../components/explorer/FileExplorer";
 import {
+  FiSave,
   FiPlus,
   FiFile,
   FiChevronLeft,
   FiChevronRight,
-  FiSave,
   FiRefreshCw,
+  FiUsers,
+  FiDownload,
+  FiMaximize,
+  FiMinimize,
 } from "react-icons/fi";
 import logo from "../../assets/logo.png";
 
@@ -34,6 +38,10 @@ export default function FolderEditor() {
   const [fileError, setFileError] = useState(null);
   const [isSaving, setIsSaving] = useState(false);
   const editorRef = useRef(null);
+
+  // Add these state variables to your component
+  const [theme, setTheme] = useState(currentuser?.theme || "vs-dark");
+  const [lastSaved, setLastSaved] = useState(null);
 
   // Parse the document ID from the URL query parameter if it exists
   useEffect(() => {
@@ -106,6 +114,7 @@ export default function FolderEditor() {
 
       // Update the local state
       setFileContent(content);
+      setLastSaved(Date.now()); // Update last saved time
     } catch (err) {
       console.error("Failed to save document:", err);
       alert("Failed to save document");
@@ -143,6 +152,20 @@ export default function FolderEditor() {
         console.error("Error creating file:", err);
         alert("Failed to create file");
       });
+  };
+
+  // Add this function to handle language changes
+  const handleLanguageChange = async (newLanguage) => {
+    if (!selectedFile) return;
+
+    try {
+      setFileLanguage(newLanguage);
+      await api.put(`/api/documents/${selectedFile._id}`, {
+        language: newLanguage,
+      });
+    } catch (err) {
+      console.error("Failed to update language:", err);
+    }
   };
 
   // Helper functions for file extension and language
@@ -189,19 +212,104 @@ export default function FolderEditor() {
   // Determine the navbar actions based on context
   const navbarActions = (
     <>
+      {/* Last saved indicator - only show when file is selected */}
+      {selectedFile && (
+        <div className="text-xs text-slate-400 ml-4">
+          {lastSaved
+            ? `Last saved ${new Date(lastSaved).toLocaleTimeString()}`
+            : ""}
+        </div>
+      )}
+
+      {/* Theme selector - always available */}
+      <select
+        value={theme || "vs-dark"}
+        onChange={(e) => setTheme(e.target.value)}
+        className="bg-slate-700 text-white text-sm rounded px-2 py-1 border border-slate-600 ml-4"
+      >
+        <option value="vs-dark">Dark</option>
+        <option value="light">Light</option>
+        <option value="hc-black">High Contrast</option>
+      </select>
+
+      {/* Language selector - only visible when file is selected */}
+      {selectedFile && (
+        <select
+          value={fileLanguage}
+          onChange={(e) => handleLanguageChange(e.target.value)}
+          className="bg-slate-700 text-white text-sm rounded px-2 py-1 border border-slate-600 ml-2"
+        >
+          <option value="javascript">JavaScript</option>
+          <option value="typescript">TypeScript</option>
+          <option value="html">HTML</option>
+          <option value="css">CSS</option>
+          <option value="python">Python</option>
+          <option value="java">Java</option>
+          <option value="csharp">C#</option>
+          <option value="cpp">C++</option>
+          <option value="markdown">Markdown</option>
+          <option value="json">JSON</option>
+        </select>
+      )}
+
+      {/* Save button - only visible when file is selected */}
       {selectedFile && (
         <button
           onClick={handleSaveDocument}
-          className="px-4 py-2 rounded-md text-sm bg-blue-600 text-white hover:bg-blue-700 transition-all flex items-center gap-2 mr-2"
           disabled={isSaving}
+          className="flex items-center px-3 py-1 ml-2 rounded text-sm font-medium bg-blue-600 text-white hover:bg-blue-700 transition-colors"
         >
-          {isSaving ? <FiRefreshCw className="animate-spin" /> : <FiSave />}{" "}
-          Save
+          {isSaving ? (
+            <FiRefreshCw className="animate-spin mr-1" />
+          ) : (
+            <FiSave className="mr-1" />
+          )}
+          {isSaving ? "Saving..." : "Save"}
         </button>
       )}
+
+      {/* Share folder button */}
+      <button
+        onClick={() => console.log("Share folder", folder?._id)}
+        className="p-2 ml-2 rounded text-slate-400 hover:text-white hover:bg-slate-700"
+        title="Share Folder"
+      >
+        <FiUsers />
+      </button>
+
+      {/* Export folder content */}
+      <button
+        onClick={() => console.log("Export folder", folder?._id)}
+        className="p-2 rounded text-slate-400 hover:text-white hover:bg-slate-700"
+        title="Export Folder"
+      >
+        <FiDownload />
+      </button>
+
+      {/* Fullscreen toggle */}
+      <button
+        onClick={() => {
+          const container = document.getElementById("editor-container");
+          if (!document.fullscreenElement) {
+            container.requestFullscreen().catch((err) => {
+              console.error(
+                `Error attempting to enable fullscreen: ${err.message}`
+              );
+            });
+          } else {
+            document.exitFullscreen();
+          }
+        }}
+        className="p-2 rounded text-slate-400 hover:text-white hover:bg-slate-700"
+        title="Toggle Fullscreen"
+      >
+        <FiMaximize />
+      </button>
+
+      {/* New file button - already in your component */}
       <button
         onClick={handleCreateFile}
-        className="px-4 py-2 rounded-md text-sm bg-gradient-to-r from-blue-600 to-purple-600 text-white hover:from-blue-700 hover:to-purple-700 transition-all flex items-center gap-2"
+        className="px-4 py-1.5 ml-2 rounded-md text-sm bg-gradient-to-r from-blue-600 to-purple-600 text-white hover:from-blue-700 hover:to-purple-700 transition-all flex items-center gap-2"
       >
         <FiPlus /> New File
       </button>
@@ -210,7 +318,115 @@ export default function FolderEditor() {
 
   return (
     <div className="min-h-screen bg-slate-900 flex flex-col">
-      <Navbar title={getNavTitle()} actions={navbarActions} />
+      <Navbar
+        showBackButton={true}
+        title={getNavTitle()}
+        actions={
+          <>
+            {/* Last saved indicator - only show when file is selected */}
+            {selectedFile && (
+              <div className="text-xs text-slate-400 ml-4">
+                {lastSaved
+                  ? `Last saved ${new Date(lastSaved).toLocaleTimeString()}`
+                  : ""}
+              </div>
+            )}
+
+            {/* Theme selector - always available */}
+            <select
+              value={theme || "vs-dark"}
+              onChange={(e) => setTheme(e.target.value)}
+              className="bg-slate-700 text-white text-sm rounded px-2 py-1 border border-slate-600 ml-4"
+            >
+              <option value="vs-dark">Dark</option>
+              <option value="light">Light</option>
+              <option value="hc-black">High Contrast</option>
+            </select>
+
+            {/* Language selector - only visible when file is selected */}
+            {selectedFile && (
+              <select
+                value={fileLanguage}
+                onChange={(e) => handleLanguageChange(e.target.value)}
+                className="bg-slate-700 text-white text-sm rounded px-2 py-1 border border-slate-600 ml-2"
+              >
+                <option value="javascript">JavaScript</option>
+                <option value="typescript">TypeScript</option>
+                <option value="html">HTML</option>
+                <option value="css">CSS</option>
+                <option value="python">Python</option>
+                <option value="java">Java</option>
+                <option value="csharp">C#</option>
+                <option value="cpp">C++</option>
+                <option value="markdown">Markdown</option>
+                <option value="json">JSON</option>
+              </select>
+            )}
+
+            {/* Save button - only visible when file is selected */}
+            {selectedFile && (
+              <button
+                onClick={handleSaveDocument}
+                disabled={isSaving}
+                className="flex items-center px-3 py-1 ml-2 rounded text-sm font-medium bg-blue-600 text-white hover:bg-blue-700 transition-colors"
+              >
+                {isSaving ? (
+                  <FiRefreshCw className="animate-spin mr-1" />
+                ) : (
+                  <FiSave className="mr-1" />
+                )}
+                {isSaving ? "Saving..." : "Save"}
+              </button>
+            )}
+
+            {/* Share folder button */}
+            <button
+              onClick={() => console.log("Share folder", folder?._id)}
+              className="p-2 ml-2 rounded text-slate-400 hover:text-white hover:bg-slate-700"
+              title="Share Folder"
+            >
+              <FiUsers />
+            </button>
+
+            {/* Export folder content */}
+            <button
+              onClick={() => console.log("Export folder", folder?._id)}
+              className="p-2 rounded text-slate-400 hover:text-white hover:bg-slate-700"
+              title="Export Folder"
+            >
+              <FiDownload />
+            </button>
+
+            {/* Fullscreen toggle */}
+            <button
+              onClick={() => {
+                const container = document.getElementById("editor-container");
+                if (!document.fullscreenElement) {
+                  container.requestFullscreen().catch((err) => {
+                    console.error(
+                      `Error attempting to enable fullscreen: ${err.message}`
+                    );
+                  });
+                } else {
+                  document.exitFullscreen();
+                }
+              }}
+              className="p-2 rounded text-slate-400 hover:text-white hover:bg-slate-700"
+              title="Toggle Fullscreen"
+            >
+              <FiMaximize />
+            </button>
+
+            {/* New file button - already in your component */}
+            <button
+              onClick={handleCreateFile}
+              className="px-4 py-1.5 ml-2 rounded-md text-sm bg-gradient-to-r from-blue-600 to-purple-600 text-white hover:from-blue-700 hover:to-purple-700 transition-all flex items-center gap-2"
+            >
+              <FiPlus /> New File
+            </button>
+          </>
+        }
+      />
 
       <div className="flex flex-1 relative" id="editor-container">
         {/* Sidebar toggle button */}
@@ -241,11 +457,17 @@ export default function FolderEditor() {
               <div className="flex-1 overflow-hidden">
                 <FileExplorer
                   onFileSelect={handleFileSelect}
+                  onFolderSelect={(folder) => {
+                    // Navigate to the folder but stay in folder editor view
+                    navigate(`/folders/${folder._id}`);
+                  }}
                   currentFolderId={id}
-                  showAllFiles={false}
+                  showAllFiles={true} // Change this from false to true
                   currentDocumentId={selectedFile?._id}
                   className="h-full"
                   showFolderOptions={true}
+                  hideHeader={true}
+                  excludeGlobalFiles={true}
                 />
               </div>
             </div>

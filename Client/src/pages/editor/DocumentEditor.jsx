@@ -20,6 +20,7 @@ import {
   FiChevronLeft,
   FiChevronRight,
   FiFolder,
+  FiFile,
 } from "react-icons/fi";
 import InvitationModal from "../../components/collaboration/InvitationModal";
 import CollaboratorManagement from "../../components/collaboration/CollaboratorManagement";
@@ -1092,31 +1093,44 @@ export default function DocumentEditor() {
             <div className="flex flex-col h-full">
               <div className="flex-none p-2 border-b border-slate-700/50">
                 <div className="flex items-center justify-between">
-                  <button
-                    onClick={() => setShowAllFiles(!showAllFiles)}
-                    className="text-xs flex items-center gap-1.5 text-slate-300 hover:text-white bg-slate-800/80 px-2 py-1 rounded"
-                  >
-                    {showAllFiles ? (
-                      <>
-                        <FiFolder size={12} className="text-blue-400" /> View
-                        All Files
-                      </>
-                    ) : (
-                      <>
-                        <FiFolder size={12} className="text-purple-400" /> View
-                        Current Project
-                      </>
-                    )}
-                  </button>
+                  {currentFolder ? (
+                    // Show the folder/all files toggle only when the current document belongs to a folder
+                    <button
+                      onClick={() => setShowAllFiles(!showAllFiles)}
+                      className="text-xs flex items-center gap-1.5 text-slate-300 hover:text-white bg-slate-800/80 px-2 py-1 rounded"
+                    >
+                      {showAllFiles ? (
+                        <>
+                          <FiFolder size={12} className="text-blue-400" /> View
+                          All Files
+                        </>
+                      ) : (
+                        <>
+                          <FiFolder size={12} className="text-purple-400" />{" "}
+                          View Current Project
+                        </>
+                      )}
+                    </button>
+                  ) : (
+                    // For global files, just show a title
+                    <span className="text-xs flex items-center gap-1.5 text-slate-300 bg-slate-800/80 px-2 py-1 rounded">
+                      <FiFile size={12} className="text-blue-400" /> Global
+                      Files
+                    </span>
+                  )}
                 </div>
               </div>
               <div className="flex-1 overflow-hidden">
                 <FileExplorer
                   onFileSelect={handleFileSelect}
                   currentDocumentId={id}
-                  currentFolderId={showAllFiles ? null : currentFolder}
-                  showAllFiles={showAllFiles}
+                  currentFolderId={
+                    currentFolder && !showAllFiles ? currentFolder : null
+                  }
+                  showAllFiles={currentFolder ? showAllFiles : false}
                   className="h-full"
+                  filterGlobalOnly={!currentFolder} // Show only global files when document is global
+                  filesOnly={!currentFolder} // Show only files when document is global
                 />
               </div>
             </div>

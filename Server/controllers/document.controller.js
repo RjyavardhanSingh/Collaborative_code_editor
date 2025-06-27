@@ -6,20 +6,16 @@ import Invitation from "../models/invitation.model.js";
 
 export const createDocument = async (req, res) => {
   try {
-    // Extract all fields, including folder
     const { title, content, language, folder } = req.body;
 
-    console.log("Creating document with data:", {
-      title,
-      language,
-      folderID: folder || "null", // Debug log
-    });
+    // Debug log
+    console.log("Creating document with folder:", folder);
 
     const document = await Document.create({
       title,
       content: content || "",
       language: language || "plaintext",
-      folder: folder || null, // Make sure it's explicitly null if not provided
+      folder: folder || null, // Important: Keep this as is
       owner: req.user._id,
     });
 

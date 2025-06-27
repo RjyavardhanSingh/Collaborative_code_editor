@@ -44,6 +44,9 @@ export default function FileExplorer({
   filesOnly = false,
   foldersOnly = false,
   showFolderOptions = false,
+  hideHeader = false,
+  excludeGlobalFiles = false,
+  showNestedFiles = false, // Add this new prop
 }) {
   const { currentuser } = useAuth();
   const [folderTree, setFolderTree] = useState([]);
@@ -119,6 +122,17 @@ export default function FileExplorer({
         filteredDocuments = documents.filter(
           (doc) => doc.folder?.toString() === currentFolderId?.toString()
         );
+      } else if (currentFolderId && showNestedFiles) {
+        // If showNestedFiles is true, collect files from all subfolders
+        // Get all subfolder IDs recursively
+        const allSubfolderIds = getAllSubfolderIds(folders, currentFolderId);
+
+        // Include files from current folder and all subfolders
+        filteredDocuments = documents.filter(
+          (doc) =>
+            doc.folder?.toString() === currentFolderId?.toString() ||
+            allSubfolderIds.includes(doc.folder?.toString())
+        );
       }
 
       // Apply filesOnly or foldersOnly filters if specified
@@ -131,14 +145,21 @@ export default function FileExplorer({
         }));
       } else if (foldersOnly) {
         // Only create a tree with folders, no files
-        finalTree = buildFolderTree(folders, [], currentFolderId, showAllFiles);
+        finalTree = buildFolderTree(
+          folders,
+          [],
+          currentFolderId,
+          showAllFiles,
+          true
+        );
       } else {
         // Build the normal combined tree
         finalTree = buildFolderTree(
           folders,
           filteredDocuments,
           currentFolderId,
-          showAllFiles
+          showAllFiles,
+          !filesOnly // Exclude global files when showing folders
         );
       }
 
@@ -181,7 +202,8 @@ export default function FileExplorer({
     folders,
     documents,
     currentFolderId,
-    showAllFiles
+    showAllFiles,
+    excludeGlobalFiles = false // Add this parameter
   ) => {
     // Create a map of all folders by ID for quick lookup
     const folderMap = new Map();
@@ -207,7 +229,7 @@ export default function FileExplorer({
             return folder;
           });
 
-        // Compare string versions of IDs
+        // Get documents for this folder level
         const folderDocuments = documents
           .filter((doc) => doc.folder?.toString() === folderId?.toString())
           .map((doc) => ({ ...doc, type: "document" }));
@@ -216,6 +238,43 @@ export default function FileExplorer({
       };
 
       currentFolder.children = getChildFolders(currentFolderId);
+
+      // If showNestedFiles is true, get all documents from all nested folders and add them directly
+      // to the current folder for easy access
+      if (showNestedFiles) {
+        const getAllNestedDocuments = (folders, documents, folderId) => {
+          const nestedDocs = [];
+
+          const processFolder = (id) => {
+            // Add documents directly in this folder
+            const folderDocs = documents
+              .filter((doc) => doc.folder?.toString() === id?.toString())
+              .map((doc) => ({ ...doc, type: "document" }));
+
+            nestedDocs.push(...folderDocs);
+
+            // Find and process child folders
+            const childFolders = folders.filter(
+              (folder) => folder.parentFolder?.toString() === id?.toString()
+            );
+
+            childFolders.forEach((child) => processFolder(child._id));
+          };
+
+          // Start with the parent folder
+          processFolder(folderId);
+          return nestedDocs;
+        };
+
+        // Add all nested documents to current folder
+        const allNestedDocs = getAllNestedDocuments(
+          folders,
+          documents,
+          currentFolderId
+        );
+        currentFolder.allNestedDocuments = allNestedDocs;
+      }
+
       return [currentFolder];
     } else {
       // Show the full hierarchy (or root level)
@@ -236,9 +295,35 @@ export default function FileExplorer({
       // Add documents to their respective folders or root level
       documents.forEach((doc) => {
         const documentItem = { ...doc, type: "document" };
-        if (doc.folder && folderMap.has(doc.folder)) {
-          folderMap.get(doc.folder).children.push(documentItem);
-        } else {
+
+        // More robust check if a document has a valid folder
+        const hasValidFolder =
+          doc.folder &&
+          doc.folder !== "" &&
+          !(
+            typeof doc.folder === "object" &&
+            Object.keys(doc.folder).length === 0
+          );
+
+        if (hasValidFolder) {
+          const folderIdStr =
+            typeof doc.folder === "object" ? doc.folder.toString() : doc.folder;
+
+          // Find the folder in our map using string comparison
+          let found = false;
+          folderMap.forEach((folder, key) => {
+            if (key.toString() === folderIdStr) {
+              folder.children.push(documentItem);
+              found = true;
+            }
+          });
+
+          // If no folder found and we're not folders-only, add to root
+          if (!found && !foldersOnly && !excludeGlobalFiles) {
+            rootFolders.push(documentItem);
+          }
+        } else if (!foldersOnly && !excludeGlobalFiles) {
+          // Only add true global documents (no folder) to root
           rootFolders.push(documentItem);
         }
       });
@@ -323,7 +408,7 @@ export default function FileExplorer({
     }
   };
 
-  // Update the handleCreateDocument function with proper folder ID handling
+  // Updated handleCreateDocument function to ensure subfolder IDs are properly handled
 
   const handleCreateDocument = async (folderId = null) => {
     try {
@@ -336,22 +421,20 @@ export default function FileExplorer({
       const language = getLanguageFromExtension(extension);
       const content = getDefaultContentForLanguage(language);
 
-      // Convert to string to ensure consistent format
-      const targetFolderId = (folderId || currentFolderId)?.toString();
+      // Use the explicitly passed folder ID directly, don't modify it
+      // This ensures the correct folder context is maintained
+      console.log("Creating file in folder:", folderId || currentFolderId);
 
-      console.log("Creating file in folder:", targetFolderId);
-
-      // Ensure folder ID is explicitly sent as a string
       const response = await api.post("/api/documents", {
         title: filename,
         content,
         language,
-        folder: targetFolderId || null, // Explicitly set null if no folder
+        folder: folderId || currentFolderId, // Keep the folder ID as is
       });
 
       console.log("File created response:", response.data);
 
-      // Wait for the folder structure to refresh before navigating
+      // Refresh folder structure before navigating
       await fetchFolderStructure();
 
       // If onFileSelect is defined, navigate to the new file
@@ -580,6 +663,39 @@ export default function FileExplorer({
                   {renderTreeItems(item.children)}
                 </div>
               )}
+
+              {/* If this is the current folder and showNestedFiles is true, add a section for all nested files */}
+              {showNestedFiles &&
+                item._id === currentFolderId &&
+                item.allNestedDocuments?.length > 0 && (
+                  <div className="pl-4 border-l border-slate-700/50 ml-2.5">
+                    <div className="py-1 px-2">
+                      <span className="text-slate-400 text-xs font-medium">
+                        All Nested Files
+                      </span>
+                    </div>
+                    <div className="pl-2">
+                      {item.allNestedDocuments.map((doc) => (
+                        <div
+                          key={doc._id}
+                          className={`flex items-center py-1 px-2 hover:bg-slate-700/50 rounded cursor-pointer ${
+                            currentDocumentId === doc._id
+                              ? "bg-blue-500/20 text-blue-400"
+                              : ""
+                          }`}
+                          onClick={() => onFileSelect(doc)}
+                        >
+                          <span className="mr-1.5 text-slate-400 flex items-center justify-center">
+                            {getFileIcon(doc.title)}
+                          </span>
+                          <span className="text-slate-200 text-sm truncate">
+                            {doc.title}
+                          </span>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
             </div>
           );
         } else if (!foldersOnly) {
@@ -717,7 +833,7 @@ export default function FileExplorer({
   // Update the return statement to use the renderContextMenu function
   return (
     <div className={`h-full flex flex-col ${className || ""}`}>
-      {!foldersOnly && !filesOnly && (
+      {!hideHeader && !foldersOnly && !filesOnly && (
         <div className="flex-none p-2 border-b border-slate-700/50 flex justify-between items-center">
           <h3 className="text-white font-medium flex items-center gap-1.5">
             <FiFolder className="text-blue-400" size={16} /> Explorer

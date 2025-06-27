@@ -711,6 +711,12 @@ export default function Dashboard() {
                     onFileSelect={(file) => navigate(`/documents/${file._id}`)}
                     className="h-[calc(100%-46px)] overflow-y-auto"
                     filesOnly={true}
+                    showAllFiles={false}
+                    filterGlobalOnly={true}
+                    hideHeader={true}
+                    // Add these debugging props
+                    debugMode={true}
+                    debugLabel="Dashboard-GlobalFiles"
                   />
                 </div>
               </div>
@@ -779,8 +785,10 @@ export default function Dashboard() {
                     onFileSelect={(file) => navigate(`/documents/${file._id}`)}
                     onFolderSelect={handleFolderSelect}
                     className="h-[calc(100%-46px)] overflow-y-auto"
-                    foldersOnly={true}
+                    showAllFiles={true}
                     showFolderOptions={true}
+                    hideHeader={true} // Hide the Explorer subheading
+                    excludeGlobalFiles={true} // Don't show global files in folder tree
                   />
                 </div>
               </div>
