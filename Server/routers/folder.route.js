@@ -6,6 +6,12 @@ import {
   getFolderById,
   updateFolder,
   deleteFolder,
+  addCollaborator,
+  removeCollaborator,
+  getFolderCollaborators,
+  getFolderMessages,
+  createFolderMessage,
+  getFolderDocuments, // Add this import
 } from "../controllers/folder.controller.js";
 
 const router = express.Router();
@@ -15,5 +21,11 @@ router.get("/", protect, getFolders);
 router.get("/:id", protect, getFolderById);
 router.put("/:id", protect, updateFolder);
 router.delete("/:id", protect, deleteFolder);
+router.post("/:id/collaborators", protect, addCollaborator);
+router.delete("/:id/collaborators/:userId", protect, removeCollaborator);
+router.get("/:id/collaborators", protect, getFolderCollaborators);
+router.get("/:id/messages", protect, getFolderMessages);
+router.post("/:id/messages", protect, createFolderMessage);
+router.get("/:id/documents", protect, getFolderDocuments); // Add this route
 
 export default router;

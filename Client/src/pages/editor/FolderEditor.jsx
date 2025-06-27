@@ -224,38 +224,7 @@ export default function FolderEditor() {
   const socketRef = useRef(null);
   const messageContainerRef = useRef(null);
 
-  // Add this function to handle share button click
-  const handleShareFolder = () => {
-    setIsChatOpen(false);
-    setIsCollaboratorsOpen(!isCollaboratorsOpen);
-  };
-
-  // Add this function to handle chat opening
-  const handleOpenChat = () => {
-    setIsCollaboratorsOpen(false);
-    setIsChatOpen(!isChatOpen);
-    if (!isChatOpen) {
-      setUnreadMessageCount(0);
-    }
-  };
-
-  // Add this function to send messages
-  const handleSendMessage = () => {
-    if (!newMessage.trim() || !socketRef.current) return;
-
-    socketRef.current.emit("send-message", {
-      content: newMessage,
-      folderId: folder._id,
-      sender: {
-        _id: currentuser._id,
-        username: currentuser.username,
-      },
-    });
-
-    setNewMessage("");
-  };
-
-  // Socket connection and event handling
+  // Add this effect for socket connection
   useEffect(() => {
     if (!folder) return;
 
@@ -284,12 +253,86 @@ export default function FolderEditor() {
       setActiveUsers(users);
     });
 
+    // Fetch existing messages
+    const fetchMessages = async () => {
+      try {
+        const { data } = await api.get(`/api/folders/${folder._id}/messages`);
+        setMessages(data || []);
+      } catch (err) {
+        console.error("Failed to fetch messages:", err);
+      }
+    };
+
+    fetchMessages();
+
     return () => {
       if (socketRef.current) {
         socketRef.current.disconnect();
       }
     };
   }, [folder?._id, isChatOpen]);
+
+  // Add effect to scroll messages to bottom when new messages arrive
+  useEffect(() => {
+    if (messageContainerRef.current && isChatOpen) {
+      messageContainerRef.current.scrollTop =
+        messageContainerRef.current.scrollHeight;
+    }
+  }, [messages, isChatOpen]);
+
+  // Add this effect to fetch collaborators
+  useEffect(() => {
+    if (!folder?._id) return;
+
+    const fetchCollaborators = async () => {
+      try {
+        const { data } = await api.get(
+          `/api/folders/${folder._id}/collaborators`
+        );
+
+        // Format data for CollaboratorManagement component
+        const formatted = [
+          { user: data.owner, isOwner: true, permission: "admin" },
+          ...data.collaborators,
+        ];
+
+        setCollaborators(formatted);
+      } catch (err) {
+        console.error("Failed to fetch collaborators:", err);
+      }
+    };
+
+    fetchCollaborators();
+  }, [folder]);
+
+  // Add these functions for collaboration panel
+  const handleShareFolder = () => {
+    setIsChatOpen(false);
+    setIsCollaboratorsOpen(!isCollaboratorsOpen);
+  };
+
+  const handleOpenChat = () => {
+    setIsCollaboratorsOpen(false);
+    setIsChatOpen(!isChatOpen);
+    if (!isChatOpen) {
+      setUnreadMessageCount(0);
+    }
+  };
+
+  const handleSendMessage = () => {
+    if (!newMessage.trim() || !socketRef.current) return;
+
+    socketRef.current.emit("send-message", {
+      content: newMessage,
+      folderId: folder._id,
+      sender: {
+        _id: currentuser._id,
+        username: currentuser.username,
+      },
+    });
+
+    setNewMessage("");
+  };
 
   // Determine the navbar actions based on context
   const navbarActions = (

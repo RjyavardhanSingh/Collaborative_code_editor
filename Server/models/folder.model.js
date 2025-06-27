@@ -34,6 +34,12 @@ const folderSchema = new mongoose.Schema(
           enum: ["read", "write", "admin"],
           default: "read",
         },
+        selectedFiles: [
+          {
+            type: mongoose.Schema.Types.ObjectId,
+            ref: "Document",
+          },
+        ],
       },
     ],
   },
