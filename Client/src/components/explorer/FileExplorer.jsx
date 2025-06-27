@@ -296,16 +296,8 @@ export default function FileExplorer({
       documents.forEach((doc) => {
         const documentItem = { ...doc, type: "document" };
 
-        // More robust check if a document has a valid folder
-        const hasValidFolder =
-          doc.folder &&
-          doc.folder !== "" &&
-          !(
-            typeof doc.folder === "object" &&
-            Object.keys(doc.folder).length === 0
-          );
-
-        if (hasValidFolder) {
+        // Ensure both IDs are strings for comparison
+        if (doc.folder) {
           const folderIdStr =
             typeof doc.folder === "object" ? doc.folder.toString() : doc.folder;
 
@@ -319,11 +311,11 @@ export default function FileExplorer({
           });
 
           // If no folder found and we're not folders-only, add to root
-          if (!found && !foldersOnly && !excludeGlobalFiles) {
+          if (!found && !foldersOnly) {
             rootFolders.push(documentItem);
           }
         } else if (!foldersOnly && !excludeGlobalFiles) {
-          // Only add true global documents (no folder) to root
+          // Only add global documents to root if we're not excluding them
           rootFolders.push(documentItem);
         }
       });

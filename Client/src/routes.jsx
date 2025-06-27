@@ -14,6 +14,7 @@ const SharedDocuments = lazy(() =>
   import("./pages/shared/SharedDocuments.jsx")
 );
 const FolderEditor = lazy(() => import("./pages/editor/FolderEditor.jsx"));
+const Projects = lazy(() => import("./pages/projects/Projects.jsx"));
 
 const LoadingFallback = () => (
   <div className="flex items-center justify-center h-screen w-screen">
@@ -108,6 +109,14 @@ export const routes = [
         element: (
           <Suspense fallback={<LoadingFallback />}>
             <FolderEditor />
+          </Suspense>
+        ),
+      },
+      {
+        path: "/projects",
+        element: (
+          <Suspense fallback={<LoadingFallback />}>
+            <Projects />
           </Suspense>
         ),
       },

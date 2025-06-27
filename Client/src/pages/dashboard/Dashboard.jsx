@@ -508,6 +508,14 @@ export default function Dashboard() {
             </span>
           </Link>
           <Link
+            to="/projects"
+            className="px-4 py-2 rounded-md text-sm font-medium text-slate-300 hover:bg-slate-800/50 hover:text-white transition-all duration-300 backdrop-blur-sm"
+          >
+            <span className="flex items-center gap-2">
+              <FiFolder /> Projects
+            </span>
+          </Link>
+          <Link
             to="/shared"
             className="px-4 py-2 rounded-md text-sm font-medium text-slate-300 hover:bg-slate-800/50 hover:text-white transition-all duration-300 backdrop-blur-sm"
           >
@@ -617,14 +625,14 @@ export default function Dashboard() {
                 >
                   <div className="px-6 py-5 bg-slate-800/70 border-b border-slate-700/70 flex justify-between items-center">
                     <h3 className="text-lg font-medium text-white flex items-center gap-2">
-                      <FiFolder className="text-purple-400" /> Your Projects
+                      <FiFolder className="text-purple-400" /> Recent Projects
                     </h3>
-                    <button
-                      onClick={() => setShowNewProjectModal(true)}
+                    <Link
+                      to="/projects"
                       className="text-sm text-purple-400 hover:text-purple-300 transition-colors flex items-center gap-1"
                     >
-                      <FiFolderPlus size={14} /> New Project
-                    </button>
+                      View all <FiArrowRight size={14} />
+                    </Link>
                   </div>
 
                   <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 p-6">
@@ -632,6 +640,7 @@ export default function Dashboard() {
                     dashboardData.folders.length > 0 ? (
                       dashboardData.folders
                         .filter((folder) => !folder.parentFolder) // Show only root folders
+                        .slice(0, 3) // Show only 3 most recent projects
                         .map((folder) => (
                           <motion.div
                             key={folder._id}
@@ -693,10 +702,11 @@ export default function Dashboard() {
               </div>
             </div>
 
-            {/* First row: Files Explorer and Recent Documents */}
+            {/* Modified Files/Folders Explorer Layout */}
             <div className="flex flex-col lg:flex-row gap-8">
-              {/* Left column - Files Explorer */}
-              <div className="lg:w-1/3">
+              {/* Left column - Combined Explorers */}
+              <div className="lg:w-1/3 flex flex-col gap-4">
+                {/* Files Explorer */}
                 <div
                   className="bg-slate-800/50 rounded-xl border border-slate-700/50 shadow-xl overflow-hidden backdrop-blur-sm"
                   style={{ height: "280px" }}
@@ -714,15 +724,37 @@ export default function Dashboard() {
                     showAllFiles={false}
                     filterGlobalOnly={true}
                     hideHeader={true}
-                    // Add these debugging props
                     debugMode={true}
                     debugLabel="Dashboard-GlobalFiles"
                   />
                 </div>
+
+                {/* Folders Explorer - immediately below Files Explorer */}
+                <div
+                  className="bg-slate-800/50 rounded-xl border border-slate-700/50 shadow-xl overflow-hidden backdrop-blur-sm"
+                  style={{ height: "280px" }}
+                >
+                  <div className="px-4 py-3 bg-slate-800/70 border-b border-slate-700/70">
+                    <h3 className="text-md font-medium text-white flex items-center gap-1.5">
+                      <FiFolder className="text-purple-400" size={16} /> Folders
+                      Explorer
+                    </h3>
+                  </div>
+                  <FileExplorer
+                    onFileSelect={(file) => navigate(`/documents/${file._id}`)}
+                    onFolderSelect={handleFolderSelect}
+                    className="h-[calc(100%-46px)] overflow-y-auto"
+                    showAllFiles={true}
+                    showFolderOptions={true}
+                    hideHeader={true}
+                    excludeGlobalFiles={true}
+                  />
+                </div>
               </div>
 
-              {/* Right column - Recent Documents */}
-              <div className="lg:w-2/3">
+              {/* Right column - contains both Recent Documents and Templates in a column */}
+              <div className="lg:w-2/3 flex flex-col gap-4">
+                {/* Recent Documents */}
                 <motion.div
                   initial={{ opacity: 0, y: 20 }}
                   animate={{ opacity: 1, y: 0 }}
@@ -764,42 +796,13 @@ export default function Dashboard() {
                     )}
                   </div>
                 </motion.div>
-              </div>
-            </div>
 
-            {/* Second row: Folders Explorer and Quick Templates - truly parallel */}
-            <div className="flex flex-col lg:flex-row gap-8 mt-4">
-              {/* Left column - Folders Explorer */}
-              <div className="lg:w-1/3">
-                <div
-                  className="bg-slate-800/50 rounded-xl border border-slate-700/50 shadow-xl overflow-hidden backdrop-blur-sm"
-                  style={{ height: "280px" }}
-                >
-                  <div className="px-4 py-3 bg-slate-800/70 border-b border-slate-700/70">
-                    <h3 className="text-md font-medium text-white flex items-center gap-1.5">
-                      <FiFolder className="text-purple-400" size={16} /> Folders
-                      Explorer
-                    </h3>
-                  </div>
-                  <FileExplorer
-                    onFileSelect={(file) => navigate(`/documents/${file._id}`)}
-                    onFolderSelect={handleFolderSelect}
-                    className="h-[calc(100%-46px)] overflow-y-auto"
-                    showAllFiles={true}
-                    showFolderOptions={true}
-                    hideHeader={true} // Hide the Explorer subheading
-                    excludeGlobalFiles={true} // Don't show global files in folder tree
-                  />
-                </div>
-              </div>
-
-              {/* Right column - Quick Templates */}
-              <div className="lg:w-2/3">
+                {/* Quick Start Templates */}
                 <motion.div
                   initial={{ opacity: 0, y: 20 }}
                   animate={{ opacity: 1, y: 0 }}
                   transition={{ duration: 0.5, delay: 0.3 }}
-                  className="bg-gradient-to-r from-blue-900/20 to-purple-900/20 rounded-xl shadow-xl overflow-hidden border border-blue-900/20 backdrop-blur-sm h-full"
+                  className="bg-gradient-to-r from-blue-900/20 to-purple-900/20 rounded-xl shadow-xl overflow-hidden border border-blue-900/20 backdrop-blur-sm"
                 >
                   <div className="px-6 py-5 border-b border-blue-900/30 flex items-center gap-2">
                     <FiCommand className="text-blue-400" size={20} />
