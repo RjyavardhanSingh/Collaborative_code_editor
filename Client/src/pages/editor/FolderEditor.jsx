@@ -46,6 +46,7 @@ export default function FolderEditor() {
   // Add these state variables to your component
   const [theme, setTheme] = useState(currentuser?.theme || "vs-dark");
   const [lastSaved, setLastSaved] = useState(null);
+  const [filteredFileIds, setFilteredFileIds] = useState([]); // Add state for filtered file IDs
 
   // Parse the document ID from the URL query parameter if it exists
   useEffect(() => {
@@ -62,6 +63,37 @@ export default function FolderEditor() {
         setLoading(true);
         const { data } = await api.get(`/api/folders/${id}`);
         setFolder(data);
+
+        console.log("Folder data:", data); // Add this for debugging
+
+        // Check if this is a shared folder with specific files
+        const isOwner = data.owner._id === currentuser._id;
+        if (!isOwner && data.collaborators) {
+          // Find current user in collaborators
+          const collaborator = data.collaborators.find(
+            (c) =>
+              c.user === currentuser._id ||
+              (c.user && c.user._id === currentuser._id)
+          );
+
+          console.log("Found collaborator:", collaborator); // Add for debugging
+
+          if (
+            collaborator &&
+            collaborator.selectedFiles &&
+            collaborator.selectedFiles.length > 0
+          ) {
+            console.log(
+              "Setting filtered file IDs:",
+              collaborator.selectedFiles
+            );
+            // Convert to array of strings if they're not already
+            const fileIds = collaborator.selectedFiles.map((id) =>
+              typeof id === "string" ? id : id.toString()
+            );
+            setFilteredFileIds(fileIds);
+          }
+        }
       } catch (err) {
         console.error("Failed to load folder:", err);
         setError("Failed to load project information");
@@ -70,10 +102,10 @@ export default function FolderEditor() {
       }
     };
 
-    if (id) {
+    if (id && currentuser) {
       fetchFolder();
     }
-  }, [id]);
+  }, [id, currentuser]);
 
   // Modified to update URL instead of navigating away
   const handleFileSelect = async (file) => {
@@ -632,13 +664,11 @@ export default function FolderEditor() {
                     // Navigate to the folder but stay in folder editor view
                     navigate(`/folders/${folder._id}`);
                   }}
+                  className="h-full overflow-y-auto"
                   currentFolderId={id}
-                  showAllFiles={true} // Show all files
-                  currentDocumentId={selectedFile?._id}
-                  className="h-full"
-                  showFolderOptions={true} // Enable folder options
-                  hideHeader={true}
-                  excludeGlobalFiles={true}
+                  selectedFileId={selectedFile?._id}
+                  filteredFileIds={filteredFileIds} // Pass filtered IDs if shared selectively
+                  showNestedFiles={true}
                 />
               </div>
             </div>

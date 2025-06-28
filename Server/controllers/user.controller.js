@@ -1,6 +1,7 @@
 import User from "../models/user.model.js";
 import Document from "../models/document.model.js";
 import Invitation from "../models/invitation.model.js";
+import Folder from "../models/folder.model.js";
 
 export const getUserProfile = async (req, res) => {
   try {
@@ -198,4 +199,108 @@ export const cancelInvitation = async (req, res) => {
     console.error("Error cancelling invitation:", error);
     res.status(500).json({ message: "Failed to cancel invitation" });
   }
+};
+
+// Add this new method
+export const getSharedContent = async (req, res) => {
+  try {
+    const userId = req.params.id;
+
+    // Ensure the user is requesting their own data
+    if (userId !== req.user._id.toString()) {
+      return res.status(403).json({ message: "Access denied" });
+    }
+
+    // Get all documents shared with the user
+    const sharedDocuments = await Document.find({
+      "collaborators.user": userId,
+      owner: { $ne: userId },
+    })
+      .populate("owner", "username email")
+      .populate("folder", "name") // Populate folder to know source
+      .lean();
+
+    // Get all folders shared with the user
+    const sharedFolders = await Folder.find({
+      "collaborators.user": userId,
+      owner: { $ne: userId },
+    })
+      .populate("owner", "username email")
+      .lean();
+
+    // Process folders to include document count
+    const processedFolders = await Promise.all(
+      sharedFolders.map(async (folder) => {
+        // Count all documents in this folder and its subfolders
+        const documentCount = await countDocumentsInFolderTree(folder._id);
+
+        // Get the user's permission for this folder
+        const collaborator = folder.collaborators.find(
+          (c) => c.user.toString() === userId
+        );
+
+        return {
+          ...folder,
+          documentCount,
+          permission: collaborator?.permission || "read",
+        };
+      })
+    );
+
+    // Process documents to categorize by source
+    const processedFiles = sharedDocuments.map((doc) => {
+      // Determine if it's from a folder or global
+      const sourceType = doc.folder ? "folder" : "global";
+
+      // Get the user's permission for this document
+      const collaborator = doc.collaborators.find(
+        (c) => c.user.toString() === userId
+      );
+
+      return {
+        ...doc,
+        sourceType,
+        sourceName: doc.folder?.name || null,
+        permission: collaborator?.permission || "read",
+      };
+    });
+
+    // Sort folders alphabetically
+    processedFolders.sort((a, b) => a.name.localeCompare(b.name));
+
+    res.json({
+      files: processedFiles,
+      folders: processedFolders,
+    });
+  } catch (error) {
+    console.error("Error fetching shared content:", error);
+    res.status(500).json({ message: error.message });
+  }
+};
+
+// Helper function to count documents in a folder and its subfolders
+const countDocumentsInFolderTree = async (folderId) => {
+  // Get all subfolders recursively
+  const getAllSubfolderIds = async (rootId) => {
+    const result = [rootId]; // Include the starting folder ID
+
+    const subfolders = await Folder.find({ parentFolder: rootId }).select(
+      "_id"
+    );
+    for (const subfolder of subfolders) {
+      const childIds = await getAllSubfolderIds(subfolder._id);
+      result.push(...childIds);
+    }
+
+    return result;
+  };
+
+  const folderIds = await getAllSubfolderIds(folderId);
+
+  // Count documents in all these folders
+  const count = await Document.countDocuments({
+    folder: { $in: folderIds },
+  });
+
+  return count;
 };

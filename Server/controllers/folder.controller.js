@@ -42,10 +42,15 @@ export const getFolders = async (req, res) => {
 
 export const getFolderById = async (req, res) => {
   try {
-    const folder = await Folder.findById(req.params.id).populate({
-      path: "documents",
-      select: "title language updatedAt",
-    });
+    const folder = await Folder.findById(req.params.id)
+      .populate({
+        path: "documents",
+        select: "title language updatedAt",
+      })
+      .populate({
+        path: "collaborators.user",
+        select: "username email _id",
+      });
 
     if (!folder) {
       return res.status(404).json({ message: "Folder not found" });
@@ -53,14 +58,24 @@ export const getFolderById = async (req, res) => {
 
     const isOwner = folder.owner.toString() === req.user._id.toString();
     const isCollaborator = folder.collaborators.some(
-      (c) => c.user.toString() === req.user._id.toString()
+      (c) => c.user._id.toString() === req.user._id.toString()
     );
 
     if (!isOwner && !isCollaborator) {
       return res.status(403).json({ message: "Access denied" });
     }
 
-    res.json(folder);
+    // Format the response
+    const formattedFolder = {
+      ...folder.toObject(),
+      collaborators: folder.collaborators.map((collab) => ({
+        user: collab.user,
+        permission: collab.permission,
+        selectedFiles: collab.selectedFiles || [],
+      })),
+    };
+
+    res.json(formattedFolder);
   } catch (error) {
     res.status(500).json({ message: error.message });
   }
@@ -373,18 +388,34 @@ export const getFolderDocuments = async (req, res) => {
   try {
     const { id } = req.params;
 
-    const folder = await Folder.findById(id);
+    // Find the folder
+    const folder = await Folder.findById(id).populate(
+      "collaborators.user",
+      "_id"
+    );
     if (!folder) {
       return res.status(404).json({ message: "Folder not found" });
     }
 
+    // Check permissions
     const isOwner = folder.owner.toString() === req.user._id.toString();
-    const isCollaborator = folder.collaborators.some(
-      (c) => c.user.toString() === req.user._id.toString()
+    const collaborator = folder.collaborators.find(
+      (c) => c.user._id.toString() === req.user._id.toString()
     );
 
-    if (!isOwner && !isCollaborator) {
+    if (!isOwner && !collaborator) {
       return res.status(403).json({ message: "Access denied" });
+    }
+
+    // If collaborator with selected files, filter to just those files
+    let filteredFileIds = null;
+    if (
+      !isOwner &&
+      collaborator &&
+      collaborator.selectedFiles &&
+      collaborator.selectedFiles.length > 0
+    ) {
+      filteredFileIds = collaborator.selectedFiles.map((id) => id.toString());
     }
 
     // Get all subfolders recursively
@@ -411,14 +442,21 @@ export const getFolderDocuments = async (req, res) => {
     }).select("_id name parentFolder");
 
     // Get all documents in one query
-    const documents = await Document.find({
+    let documents = await Document.find({
       folder: { $in: folderIds },
     }).select("_id title language updatedAt folder");
+
+    // Filter documents if needed based on permissions
+    if (filteredFileIds) {
+      documents = documents.filter((doc) =>
+        filteredFileIds.includes(doc._id.toString())
+      );
+    }
 
     // Create a map for quick folder lookups
     const folderMap = {};
     folders.forEach((folder) => {
-      folderMap[folder._id] = {
+      folderMap[folder._id.toString()] = {
         _id: folder._id,
         name: folder.name,
         type: "folder",
@@ -442,7 +480,10 @@ export const getFolderDocuments = async (req, res) => {
     });
 
     // Build the folder hierarchy
-    const rootFolder = folderMap[id];
+    const rootFolder = folderMap[id.toString()];
+    if (!rootFolder) {
+      return res.status(404).json({ message: "Folder structure not found" });
+    }
 
     // Add subfolders to their parent folders
     folders.forEach((folder) => {
@@ -452,13 +493,16 @@ export const getFolderDocuments = async (req, res) => {
         ? folder.parentFolder.toString()
         : null;
       if (parentId && folderMap[parentId]) {
-        folderMap[parentId].subfolders.push(folderMap[folder._id]);
+        folderMap[parentId].subfolders.push(folderMap[folder._id.toString()]);
       }
     });
 
+    // Return both tree structure and flat documents list
     res.json({
       treeStructure: rootFolder,
       flatDocuments: documents,
+      hasFilteredAccess: !!filteredFileIds,
+      filteredFileIds: filteredFileIds,
     });
   } catch (error) {
     console.error("Error fetching folder documents:", error);

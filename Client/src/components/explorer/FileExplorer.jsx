@@ -48,9 +48,11 @@ export default function FileExplorer({
   hideHeader = false,
   excludeGlobalFiles = false,
   showNestedFiles = false,
-  
+
   selectionMode = false,
   dashboardMode = false,
+
+  filteredFileIds = null, // If set, only show these file IDs
 }) {
   const { currentuser } = useAuth();
   const [folderTree, setFolderTree] = useState([]);
@@ -116,6 +118,19 @@ export default function FileExplorer({
 
       // Continue with the data we have - filter documents if needed
       let filteredDocuments = documents;
+
+      // Apply filtering if filteredFileIds is set
+      if (filteredFileIds && filteredFileIds.length > 0) {
+        console.log("Filtering files by IDs:", filteredFileIds);
+
+        // Filter documents to only include those in filteredFileIds
+        filteredDocuments = documents.filter((doc) =>
+          filteredFileIds.some((id) => id === doc._id.toString())
+        );
+
+        console.log("Filtered documents:", filteredDocuments);
+      }
+
       if (sharedOnly && currentuser) {
         filteredDocuments = documents.filter(
           (doc) =>
@@ -553,7 +568,7 @@ export default function FileExplorer({
                 }`}
               >
                 {/* Arrow for expand/collapse - only toggles expansion */}
-                <span 
+                <span
                   className="mr-1 text-slate-400 cursor-pointer"
                   onClick={(e) => {
                     e.stopPropagation(); // Prevent folder selection
@@ -569,20 +584,20 @@ export default function FileExplorer({
                     <FiChevronRight size={14} />
                   )}
                 </span>
-                
+
                 {/* Folder icon and name - handles selection and navigation */}
                 <div
                   className="flex items-center cursor-pointer flex-grow"
                   onClick={(e) => {
                     // Clear file selection when selecting a folder
                     setSelectedFile(null);
-                    
+
                     // First, select the folder
                     if (onFolderSelect) {
                       onFolderSelect(item);
                       setSelectedFolder(item);
                     }
-                    
+
                     // In dashboard mode, also navigate to folder editor
                     if (dashboardMode && onFolderOpen) {
                       onFolderOpen(item);
@@ -675,16 +690,16 @@ export default function FileExplorer({
                 currentDocumentId === item._id
                   ? "bg-blue-500/20 text-blue-400"
                   : selectedFile && selectedFile._id === item._id
-                  ? "bg-slate-700/70" 
+                  ? "bg-slate-700/70"
                   : ""
               }`}
               onClick={() => {
                 // Clear folder selection when selecting a file
                 setSelectedFolder(null);
-                
+
                 // Set as selected file
                 setSelectedFile(item);
-                
+
                 // Also perform the regular file selection action
                 if (onFileSelect) onFileSelect(item);
               }}
@@ -711,7 +726,7 @@ export default function FileExplorer({
         title: newName,
         // We only update the title, preserving other fields
       });
-      
+
       setSelectedFile(null);
       fetchFolderStructure();
     } catch (err) {
@@ -892,7 +907,7 @@ export default function FileExplorer({
         </div>
       );
     }
-    
+
     // Show file actions when a file is selected and not in dashboard mode
     if (selectedFile && !dashboardMode) {
       return (
@@ -900,7 +915,7 @@ export default function FileExplorer({
           <div className="text-xs text-slate-400 mr-auto truncate">
             {selectedFile.title}
           </div>
-          
+
           <button
             onClick={() => {
               if (onFileSelect) onFileSelect(selectedFile);
@@ -910,7 +925,7 @@ export default function FileExplorer({
           >
             <FiCode size={12} />
           </button>
-          
+
           <button
             onClick={() => {
               const newName = prompt("Enter new file name", selectedFile.title);
@@ -923,10 +938,14 @@ export default function FileExplorer({
           >
             <FiEdit2 size={12} />
           </button>
-          
+
           <button
             onClick={() => {
-              if (window.confirm(`Are you sure you want to delete the file "${selectedFile.title}"?`)) {
+              if (
+                window.confirm(
+                  `Are you sure you want to delete the file "${selectedFile.title}"?`
+                )
+              ) {
                 handleDeleteFile(selectedFile._id);
               }
             }}
@@ -938,13 +957,13 @@ export default function FileExplorer({
         </div>
       );
     }
-    
+
     return null;
   };
 
   // Add click handler to clear selection when clicking empty space
   return (
-    <div 
+    <div
       className={`h-full flex flex-col ${className || ""}`}
       onClick={(e) => {
         // Only clear if clicking directly on the container (not on children)
@@ -989,7 +1008,7 @@ export default function FileExplorer({
       <div className="flex-1 overflow-y-auto p-2">
         {/* Render the action toolbar for either the selected folder or file */}
         {renderActionToolbar()}
-        
+
         {/* Existing explorer content */}
         {loading ? (
           <div className="flex items-center justify-center h-full">
