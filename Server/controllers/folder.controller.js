@@ -400,7 +400,7 @@ export const getFolderDocuments = async (req, res) => {
     // Check permissions
     const isOwner = folder.owner.toString() === req.user._id.toString();
     const collaborator = folder.collaborators.find(
-      (c) => c.user._id.toString() === req.user._id.toString()
+      (c) => c.user._id?.toString() === req.user._id.toString()
     );
 
     if (!isOwner && !collaborator) {
@@ -450,6 +450,36 @@ export const getFolderDocuments = async (req, res) => {
     if (filteredFileIds) {
       documents = documents.filter((doc) =>
         filteredFileIds.includes(doc._id.toString())
+      );
+
+      // Track which folders contain shared files
+      const relevantFolderIds = new Set();
+
+      // Add each document's immediate folder
+      documents.forEach((doc) => {
+        if (doc.folder) {
+          relevantFolderIds.add(doc.folder.toString());
+        }
+      });
+
+      // Add all parent folders up to the root
+      const addParentFolders = (folderId) => {
+        const folder = folders.find((f) => f._id.toString() === folderId);
+        if (folder && folder.parentFolder) {
+          const parentId = folder.parentFolder.toString();
+          relevantFolderIds.add(parentId);
+          addParentFolders(parentId);
+        }
+      };
+
+      // Process each folder containing shared files
+      [...relevantFolderIds].forEach((folderId) => {
+        addParentFolders(folderId);
+      });
+
+      // Filter folders to only include relevant ones
+      folders = folders.filter((folder) =>
+        relevantFolderIds.has(folder._id.toString())
       );
     }
 

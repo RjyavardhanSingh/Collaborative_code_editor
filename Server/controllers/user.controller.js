@@ -201,7 +201,7 @@ export const cancelInvitation = async (req, res) => {
   }
 };
 
-// Add this new method
+
 export const getSharedContent = async (req, res) => {
   try {
     const userId = req.params.id;
@@ -243,8 +243,18 @@ export const getSharedContent = async (req, res) => {
           ...folder,
           documentCount,
           permission: collaborator?.permission || "read",
+          selectedFiles: collaborator?.selectedFiles || [], // Add this line
         };
       })
+    );
+
+    // Log the processed data
+    console.log(
+      "API returning shared folders with files:",
+      processedFolders.map((f) => ({
+        name: f.name,
+        filesCount: f.selectedFiles?.length || 0,
+      }))
     );
 
     // Process documents to categorize by source
@@ -278,7 +288,6 @@ export const getSharedContent = async (req, res) => {
   }
 };
 
-// Helper function to count documents in a folder and its subfolders
 const countDocumentsInFolderTree = async (folderId) => {
   // Get all subfolders recursively
   const getAllSubfolderIds = async (rootId) => {

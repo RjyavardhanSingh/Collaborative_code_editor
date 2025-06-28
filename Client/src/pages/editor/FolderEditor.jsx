@@ -64,19 +64,18 @@ export default function FolderEditor() {
         const { data } = await api.get(`/api/folders/${id}`);
         setFolder(data);
 
-        console.log("Folder data:", data); // Add this for debugging
+        console.log("Folder data:", data);
 
-        // Check if this is a shared folder with specific files
+        // Find the collaborator data for current user
         const isOwner = data.owner._id === currentuser._id;
         if (!isOwner && data.collaborators) {
-          // Find current user in collaborators
           const collaborator = data.collaborators.find(
             (c) =>
               c.user === currentuser._id ||
               (c.user && c.user._id === currentuser._id)
           );
 
-          console.log("Found collaborator:", collaborator); // Add for debugging
+          console.log("Found collaborator:", collaborator);
 
           if (
             collaborator &&
@@ -87,11 +86,11 @@ export default function FolderEditor() {
               "Setting filtered file IDs:",
               collaborator.selectedFiles
             );
-            // Convert to array of strings if they're not already
-            const fileIds = collaborator.selectedFiles.map((id) =>
-              typeof id === "string" ? id : id.toString()
+            setFilteredFileIds(
+              collaborator.selectedFiles.map((id) =>
+                typeof id === "string" ? id : id.toString()
+              )
             );
-            setFilteredFileIds(fileIds);
           }
         }
       } catch (err) {
