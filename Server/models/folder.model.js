@@ -28,18 +28,13 @@ const folderSchema = new mongoose.Schema(
         user: {
           type: mongoose.Schema.Types.ObjectId,
           ref: "User",
+          required: true,
         },
         permission: {
           type: String,
           enum: ["read", "write", "admin"],
           default: "read",
         },
-        selectedFiles: [
-          {
-            type: mongoose.Schema.Types.ObjectId,
-            ref: "Document",
-          },
-        ],
       },
     ],
   },

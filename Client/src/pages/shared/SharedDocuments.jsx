@@ -130,25 +130,10 @@ export default function SharedDocuments() {
       </div>
       <h4 className="text-white font-medium">{folder.name}</h4>
 
-      {/* Add this section to indicate partial sharing */}
-      {folder.collaborators?.some(
-        (c) => c.user._id === currentuser._id && c.selectedFiles?.length > 0
-      ) && (
-        <div className="mt-2 flex items-center gap-1">
-          <span className="text-xs bg-amber-900/40 text-amber-300 px-2 py-0.5 rounded-full border border-amber-700/40 flex items-center gap-1">
-            <FiFileText size={10} /> Partial Access
-          </span>
-        </div>
-      )}
-
       {folder.documentCount > 0 && (
         <div className="mt-2 flex items-center gap-1 text-xs text-slate-400">
           <FiFileText size={12} />
-          <span>
-            {folder.collaborators?.find((c) => c.user._id === currentuser._id)
-              ?.selectedFiles?.length || folder.documentCount}{" "}
-            files
-          </span>
+          <span>{folder.documentCount} files</span>
         </div>
       )}
 

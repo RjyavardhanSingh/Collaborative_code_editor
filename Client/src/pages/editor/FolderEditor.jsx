@@ -23,6 +23,8 @@ import logo from "../../assets/logo.png";
 import { FiMessageSquare } from "react-icons/fi";
 import CollaboratorManagement from "../../components/collaboration/CollaboratorManagement";
 import { io } from "socket.io-client";
+import { Connection } from "sharedb/lib/client";
+import { MonacoShareDBBinding } from "../../lib/MonacoShareDBBinding";
 
 export default function FolderEditor() {
   const { id } = useParams();
@@ -33,6 +35,14 @@ export default function FolderEditor() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
   const [isExplorerOpen, setIsExplorerOpen] = useState(true);
+  const [isCollaboratorsOpen, setIsCollaboratorsOpen] = useState(false);
+
+  // Add these missing refs for collaborative editing
+  const editorRef = useRef(null); // Add this line
+  const bindingRef = useRef(null);
+  const shareDBDocRef = useRef(null);
+  const shareDBConnectionRef = useRef(null);
+  const cursorSocketRef = useRef(null);
 
   // Add these states for document handling
   const [selectedFile, setSelectedFile] = useState(null);
@@ -41,12 +51,10 @@ export default function FolderEditor() {
   const [fileLoading, setFileLoading] = useState(false);
   const [fileError, setFileError] = useState(null);
   const [isSaving, setIsSaving] = useState(false);
-  const editorRef = useRef(null);
 
   // Add these state variables to your component
   const [theme, setTheme] = useState(currentuser?.theme || "vs-dark");
   const [lastSaved, setLastSaved] = useState(null);
-  const [filteredFileIds, setFilteredFileIds] = useState([]); // Add state for filtered file IDs
 
   // Parse the document ID from the URL query parameter if it exists
   useEffect(() => {
@@ -66,33 +74,19 @@ export default function FolderEditor() {
 
         console.log("Folder data:", data);
 
-        // Find the collaborator data for current user
-        const isOwner = data.owner._id === currentuser._id;
-        if (!isOwner && data.collaborators) {
-          const collaborator = data.collaborators.find(
-            (c) =>
-              c.user === currentuser._id ||
-              (c.user && c.user._id === currentuser._id)
-          );
+        // Remove all the collaborator filtering logic
+        // Just check if user has access to the folder
+        const isOwner = data.owner === currentuser._id;
+        const isCollaborator = data.collaborators?.some(
+          (c) => c.user === currentuser._id || c.user?._id === currentuser._id
+        );
 
-          console.log("Found collaborator:", collaborator);
-
-          if (
-            collaborator &&
-            collaborator.selectedFiles &&
-            collaborator.selectedFiles.length > 0
-          ) {
-            console.log(
-              "Setting filtered file IDs:",
-              collaborator.selectedFiles
-            );
-            setFilteredFileIds(
-              collaborator.selectedFiles.map((id) =>
-                typeof id === "string" ? id : id.toString()
-              )
-            );
-          }
+        if (!isOwner && !isCollaborator) {
+          setError("You don't have access to this project");
+          return;
         }
+
+        setError(null);
       } catch (err) {
         console.error("Failed to load folder:", err);
         setError("Failed to load project information");
@@ -106,59 +100,28 @@ export default function FolderEditor() {
     }
   }, [id, currentuser]);
 
+  // Add these refs and states to your FolderEditor component
+  const socketRef = useRef(null);
+  const [activeUsers, setActiveUsers] = useState([]);
+  const [activeDocuments, setActiveDocuments] = useState({}); // Track which user is on which document
+
   // Modified to update URL instead of navigating away
   const handleFileSelect = async (file) => {
     // Update the URL with document ID as a query parameter
     navigate(`/folders/${id}?document=${file._id}`, { replace: true });
+
+    // Emit document activity
+    if (socketRef.current) {
+      socketRef.current.emit("document-activity", {
+        folderId: id,
+        documentId: file._id,
+        documentTitle: file.title,
+      });
+    }
+
     await fetchDocument(file._id);
   };
 
-  const fetchDocument = async (docId) => {
-    try {
-      setFileLoading(true);
-      setFileError(null);
-      const { data } = await api.get(`/api/documents/${docId}`);
-      setSelectedFile(data);
-      setFileContent(data.content || "");
-
-      // Determine language based on file extension
-      const fileExtension = data.title.split(".").pop().toLowerCase();
-      setFileLanguage(getLanguageFromExtension(fileExtension));
-    } catch (err) {
-      console.error("Failed to load document:", err);
-      setFileError("Failed to load document");
-    } finally {
-      setFileLoading(false);
-    }
-  };
-
-  const handleEditorDidMount = (editor) => {
-    editorRef.current = editor;
-  };
-
-  const handleSaveDocument = async () => {
-    if (!selectedFile || !editorRef.current) return;
-
-    try {
-      setIsSaving(true);
-      const content = editorRef.current.getValue();
-
-      await api.put(`/api/documents/${selectedFile._id}`, {
-        content,
-      });
-
-      // Update the local state
-      setFileContent(content);
-      setLastSaved(Date.now()); // Update last saved time
-    } catch (err) {
-      console.error("Failed to save document:", err);
-      alert("Failed to save document");
-    } finally {
-      setIsSaving(false);
-    }
-  };
-
-  // Function to create a new file in this folder
   const handleCreateFile = () => {
     const filename = prompt(
       "Enter filename with extension (e.g. main.js, index.html)"
@@ -187,6 +150,463 @@ export default function FolderEditor() {
         console.error("Error creating file:", err);
         alert("Failed to create file");
       });
+  };
+
+  const handleSaveDocument = async () => {
+    if (!selectedFile || !editorRef.current) return;
+
+    try {
+      setIsSaving(true);
+      const content = editorRef.current.getValue();
+
+      await api.put(`/api/documents/${selectedFile._id}`, {
+        content,
+      });
+
+      // Update the local state
+      setFileContent(content);
+      setLastSaved(Date.now()); // Update last saved time
+    } catch (err) {
+      console.error("Failed to save document:", err);
+      alert("Failed to save document");
+    } finally {
+      setIsSaving(false);
+    }
+  };
+
+  const fetchDocument = async (docId) => {
+    try {
+      setFileLoading(true);
+      setFileError(null);
+
+      // Always try folder-specific endpoint first
+      try {
+        console.log(
+          `Fetching document via folder: /api/folders/${id}/documents/${docId}`
+        );
+        const { data } = await api.get(`/api/folders/${id}/documents/${docId}`);
+        setSelectedFile(data);
+        setFileContent(data.content || "");
+
+        if (editorRef.current) {
+          initializeCollaborativeEditing(editorRef.current, docId);
+        }
+
+        const fileExtension = data.title.split(".").pop().toLowerCase();
+        const detectedLanguage = getLanguageFromExtension(fileExtension);
+        setFileLanguage(detectedLanguage);
+
+        setFileError(null);
+      } catch (folderErr) {
+        console.error("Failed to fetch via folder endpoint:", folderErr);
+
+        // Only try direct access if we're the document owner
+        if (folder.owner === currentuser._id) {
+          console.log("Trying direct document access as owner fallback...");
+          const { data } = await api.get(`/api/documents/${docId}`);
+          setSelectedFile(data);
+          setFileContent(data.content || "");
+
+          if (editorRef.current) {
+            initializeCollaborativeEditing(editorRef.current, docId);
+          }
+
+          const fileExtension = data.title.split(".").pop().toLowerCase();
+          const detectedLanguage = getLanguageFromExtension(fileExtension);
+          setFileLanguage(detectedLanguage);
+
+          setFileError(null);
+        } else {
+          throw folderErr; // Re-throw to be caught by outer try/catch
+        }
+      }
+    } catch (err) {
+      console.error("Failed to load document:", err);
+      const errorMsg =
+        err.response?.status === 403
+          ? "Permission denied. You don't have access to this file."
+          : "Error loading document. Please try again.";
+
+      setFileError(errorMsg);
+      setSelectedFile(null);
+      setFileContent("");
+    } finally {
+      setFileLoading(false);
+    }
+  };
+
+  // Initialize collaborative editing with ShareDB
+  const initializeCollaborativeEditing = (editor, docId) => {
+    if (!editor || !docId) return;
+
+    console.log(`Setting up collaborative editing for document ${docId}`);
+
+    try {
+      // Clean up any existing connections
+      if (bindingRef.current) {
+        bindingRef.current.destroy();
+        bindingRef.current = null;
+      }
+
+      if (shareDBDocRef.current) {
+        shareDBDocRef.current.destroy();
+        shareDBDocRef.current = null;
+      }
+
+      if (shareDBConnectionRef.current) {
+        shareDBConnectionRef.current.close();
+        shareDBConnectionRef.current = null;
+      }
+
+      // Connect to ShareDB server
+      const wsUrl = import.meta.env.VITE_SHAREDB_URL || "ws://localhost:8000";
+      const roomName = `document-${docId}`;
+
+      console.log(`Connecting to ShareDB: ${wsUrl}/${roomName}`);
+
+      // Create WebSocket connection
+      const shareDBSocket = new WebSocket(`${wsUrl}/${roomName}`);
+
+      // Create ShareDB connection
+      shareDBConnectionRef.current = new Connection(shareDBSocket);
+
+      // Get the document from ShareDB
+      const shareDoc = shareDBConnectionRef.current.get("documents", docId);
+      shareDBDocRef.current = shareDoc;
+
+      // Subscribe to the document
+      shareDoc.subscribe((err) => {
+        if (err) {
+          console.error("ShareDB subscription error:", err);
+          return;
+        }
+
+        console.log("✅ Subscribed to ShareDB document");
+
+        // Create or load the document
+        if (!shareDoc.type) {
+          // Document doesn't exist, create it with initial content
+          const initialContent = fileContent || "";
+          shareDoc.create(
+            { content: initialContent, language: fileLanguage },
+            (err) => {
+              if (err) {
+                console.error("ShareDB document creation error:", err);
+                return;
+              }
+
+              console.log("📄 Document created in ShareDB");
+              createBinding(editor, shareDoc);
+            }
+          );
+        } else {
+          console.log("📄 Document loaded from ShareDB");
+
+          // Update local content if needed
+          if (shareDoc.data && shareDoc.data.content !== undefined) {
+            editor.setValue(shareDoc.data.content);
+          } else if (fileContent) {
+            // Update the document with our content
+            shareDoc.submitOp([{ p: ["content"], oi: fileContent }]);
+          }
+
+          createBinding(editor, shareDoc);
+        }
+      });
+
+      // Also set up cursor tracking
+      setupCursorTracking(editor, docId);
+    } catch (error) {
+      console.error("❌ Failed to initialize collaborative editor:", error);
+    }
+  };
+
+  // Create a binding function to connect ShareDB with Monaco Editor
+  const createBinding = (editor, shareDoc) => {
+    try {
+      console.log("🔗 Creating Monaco-ShareDB binding...");
+
+      // Create a new binding
+      bindingRef.current = new MonacoShareDBBinding(shareDoc, editor);
+
+      console.log("✅ Monaco-ShareDB binding created");
+
+      // Set up auto-save
+      initializeAutoSave(shareDoc);
+    } catch (err) {
+      console.error("❌ Error creating binding:", err);
+    }
+  };
+
+  // Add an auto-save function
+  const initializeAutoSave = (shareDoc) => {
+    let saveTimeout = null;
+    let lastSavedContent = "";
+
+    const autoSave = () => {
+      if (saveTimeout) clearTimeout(saveTimeout);
+
+      saveTimeout = setTimeout(async () => {
+        try {
+          if (!selectedFile) return;
+
+          const content = shareDoc.data?.content || "";
+          if (content === lastSavedContent) return;
+
+          console.log("💾 Auto-saving document...");
+
+          await api.put(`/api/documents/${selectedFile._id}`, { content });
+          lastSavedContent = content;
+          setLastSaved(new Date());
+
+          console.log("✅ Auto-save completed");
+        } catch (error) {
+          console.error("❌ Auto-save failed:", error);
+        }
+      }, 2000);
+    };
+
+    // Listen for ShareDB operations
+    shareDoc.on("op", (op, source) => {
+      autoSave();
+    });
+  };
+
+  // In your FolderEditor component, add this function to set up cursor tracking
+  const setupCursorTracking = (editor, docId) => {
+    if (!editor || !selectedFile || !currentuser) return;
+
+    console.log("Setting up cursor tracking for folder document");
+
+    // Connect to cursor tracking server
+    const cursorServerUrl =
+      import.meta.env.VITE_CURSOR_URL || "ws://localhost:8081";
+    const cursorSocket = new WebSocket(`${cursorServerUrl}/cursors/${docId}`);
+    cursorSocketRef.current = cursorSocket;
+
+    // Send initial user info
+    cursorSocket.onopen = () => {
+      cursorSocket.send(
+        JSON.stringify({
+          type: "connect",
+          user: {
+            id: currentuser._id,
+            username: currentuser.username,
+            avatar: currentuser.avatar,
+          },
+        })
+      );
+    };
+
+    // Map to store cursor decorations by user ID
+    const userCursors = new Map();
+
+    // Update cursor position on changes
+    const sendCursorPosition = () => {
+      const position = editor.getPosition();
+      const selection = editor.getSelection();
+
+      if (
+        !position ||
+        !selection ||
+        !cursorSocket ||
+        cursorSocket.readyState !== WebSocket.OPEN
+      )
+        return;
+
+      cursorSocket.send(
+        JSON.stringify({
+          type: "cursor",
+          position: {
+            lineNumber: position.lineNumber,
+            column: position.column,
+            selection: {
+              startLineNumber: selection.startLineNumber,
+              startColumn: selection.startColumn,
+              endLineNumber: selection.endLineNumber,
+              endColumn: selection.endColumn,
+            },
+          },
+        })
+      );
+    };
+
+    // Debounce the update function
+    let cursorTimeout = null;
+    const updateCursorDebounced = () => {
+      if (cursorTimeout) clearTimeout(cursorTimeout);
+      cursorTimeout = setTimeout(sendCursorPosition, 100);
+    };
+
+    // Listen for cursor events
+    const cursorDisposable = editor.onDidChangeCursorPosition(
+      updateCursorDebounced
+    );
+    const selectionDisposable = editor.onDidChangeCursorSelection(
+      updateCursorDebounced
+    );
+
+    // Handle incoming cursor positions
+    cursorSocket.OnMessage = (event) => {
+      try {
+        const data = JSON.parse(event.data);
+
+        if (data.type === "cursor" && data.userId !== currentuser._id) {
+          const userId = data.userId;
+          const username = data.username || "User";
+          const color = getRandomColor(userId);
+          const position = data.position;
+
+          // Remove previous cursor for this user if it exists
+          const oldDecorations = userCursors.get(userId);
+          if (oldDecorations) {
+            editor.deltaDecorations(oldDecorations, []);
+          }
+
+          // Create cursor element
+          const cursorDiv = document.createElement("div");
+          cursorDiv.className = "remote-cursor";
+          cursorDiv.style.backgroundColor = color;
+          cursorDiv.style.width = "2px";
+          cursorDiv.style.height = "18px";
+
+          // Create label element
+          const labelDiv = document.createElement("div");
+          labelDiv.className = "remote-cursor-label";
+          labelDiv.textContent = username;
+          labelDiv.style.backgroundColor = color;
+          labelDiv.style.color = "#fff";
+          labelDiv.style.padding = "0 4px";
+          labelDiv.style.borderRadius = "2px";
+          labelDiv.style.fontSize = "12px";
+          labelDiv.style.position = "absolute";
+          labelDiv.style.top = "-18px";
+          labelDiv.style.whiteSpace = "nowrap";
+
+          cursorDiv.appendChild(labelDiv);
+
+          // Add cursor decoration
+          const decorations = editor.deltaDecorations(
+            [],
+            [
+              {
+                range: {
+                  startLineNumber: position.lineNumber,
+                  startColumn: position.column,
+                  endLineNumber: position.lineNumber,
+                  endColumn: position.column,
+                },
+                options: {
+                  className: `remote-cursor-${userId}`,
+                  beforeContentClassName: `remote-cursor-before-${userId}`,
+                  hoverMessage: { value: username },
+                  zIndex: 1000,
+                },
+              },
+            ]
+          );
+
+          userCursors.set(userId, decorations);
+
+          // Add CSS for this cursor
+          const styleId = `cursor-style-${userId}`;
+          let styleEl = document.getElementById(styleId);
+
+          if (!styleEl) {
+            styleEl = document.createElement("style");
+            styleEl.id = styleId;
+            document.head.appendChild(styleEl);
+          }
+
+          styleEl.textContent = `
+          .remote-cursor-before-${userId} {
+            position: relative;
+          }
+          .remote-cursor-before-${userId}::before {
+            content: "";
+            position: absolute;
+            height: 18px;
+            width: 2px;
+            background-color: ${color};
+            z-index: 1000;
+          }
+          .remote-cursor-before-${userId}::after {
+            content: "${username}";
+            position: absolute;
+            top: -18px;
+            left: 0;
+            background: ${color};
+            color: white;
+            padding: 0 4px;
+            font-size: 12px;
+            border-radius: 2px;
+            white-space: nowrap;
+            z-index: 1000;
+          }
+        `;
+        }
+      } catch (err) {
+        console.error("Cursor tracking error:", err);
+      }
+    };
+
+    // Send initial position
+    setTimeout(sendCursorPosition, 500);
+
+    // Return cleanup function
+    return () => {
+      cursorDisposable.dispose();
+      selectionDisposable.dispose();
+      if (cursorTimeout) clearTimeout(cursorTimeout);
+      if (cursorSocket && cursorSocket.readyState === WebSocket.OPEN) {
+        cursorSocket.close();
+      }
+
+      // Clean up cursor styles
+      document
+        .querySelectorAll(`[id^="cursor-style-"]`)
+        .forEach((el) => el.remove());
+    };
+  };
+
+  // Add this helper function for cursor colors
+  const getRandomColor = (userId) => {
+    const colors = [
+      "#F87171",
+      "#FB923C",
+      "#FBBF24",
+      "#A3E635",
+      "#34D399",
+      "#22D3EE",
+      "#818CF8",
+      "#C084FC",
+    ];
+
+    const hash = userId?.split("").reduce((acc, char) => {
+      return char.charCodeAt(0) + ((acc << 5) - acc);
+    }, 0);
+
+    return colors[Math.abs(hash) % colors.length];
+  };
+
+  const handleEditorDidMount = (editor) => {
+    editorRef.current = editor;
+
+    // Initialize collaborative editing if a file is selected
+    if (selectedFile && selectedFile._id) {
+      initializeCollaborativeEditing(editor, selectedFile._id);
+    }
+
+    // Set editor options
+    editor.updateOptions({
+      readOnly: !hasWritePermission(),
+      fontSize: 14,
+      minimap: { enabled: true },
+      automaticLayout: true,
+      tabSize: 2,
+      wordWrap: "on",
+      lineNumbers: "on",
+    });
   };
 
   // Add this function to handle language changes
@@ -245,14 +665,12 @@ export default function FolderEditor() {
   };
 
   // Collaborator and chat state management
-  const [isCollaboratorsOpen, setIsCollaboratorsOpen] = useState(false);
   const [isChatOpen, setIsChatOpen] = useState(false);
   const [collaborators, setCollaborators] = useState([]);
-  const [activeUsers, setActiveUsers] = useState([]);
   const [messages, setMessages] = useState([]);
   const [newMessage, setNewMessage] = useState("");
   const [unreadMessageCount, setUnreadMessageCount] = useState(0);
-  const socketRef = useRef(null);
+  const socketMessageRef = useRef(null);
   const messageContainerRef = useRef(null);
 
   // Add this effect for socket connection
@@ -261,27 +679,19 @@ export default function FolderEditor() {
 
     const socketUrl =
       import.meta.env.VITE_SOCKET_URL || "http://localhost:5000";
-    socketRef.current = io(socketUrl, {
+    socketMessageRef.current = io(socketUrl, {
       withCredentials: true,
       query: { folderId: folder._id },
       auth: { token: localStorage.getItem("authToken") },
     });
 
-    socketRef.current.emit("join-folder", { folderId: folder._id });
+    socketMessageRef.current.emit("join-folder", { folderId: folder._id });
 
-    socketRef.current.on("new-message", (message) => {
+    socketMessageRef.current.on("new-message", (message) => {
       setMessages((prevMessages) => [...prevMessages, message]);
       if (!isChatOpen) {
         setUnreadMessageCount((prev) => prev + 1);
       }
-    });
-
-    socketRef.current.on("user-joined", ({ user, users }) => {
-      setActiveUsers(users);
-    });
-
-    socketRef.current.on("user-left", ({ userId, users }) => {
-      setActiveUsers(users);
     });
 
     // Fetch existing messages
@@ -297,8 +707,8 @@ export default function FolderEditor() {
     fetchMessages();
 
     return () => {
-      if (socketRef.current) {
-        socketRef.current.disconnect();
+      if (socketMessageRef.current) {
+        socketMessageRef.current.disconnect();
       }
     };
   }, [folder?._id, isChatOpen]);
@@ -351,9 +761,9 @@ export default function FolderEditor() {
   };
 
   const handleSendMessage = () => {
-    if (!newMessage.trim() || !socketRef.current) return;
+    if (!newMessage.trim() || !socketMessageRef.current) return;
 
-    socketRef.current.emit("send-message", {
+    socketMessageRef.current.emit("send-message", {
       content: newMessage,
       folderId: folder._id,
       sender: {
@@ -364,6 +774,48 @@ export default function FolderEditor() {
 
     setNewMessage("");
   };
+
+  // Socket effect for real-time collaboration
+  useEffect(() => {
+    if (!id || !currentuser) return;
+
+    const socketUrl =
+      import.meta.env.VITE_SOCKET_URL || "http://localhost:5000";
+    socketRef.current = io(socketUrl, {
+      withCredentials: true,
+      query: { folderId: id },
+      auth: { token: localStorage.getItem("authToken") },
+    });
+
+    socketRef.current.emit("join-folder", { folderId: id });
+
+    // Listen for user joined events
+    socketRef.current.on("folder-user-joined", ({ user, users }) => {
+      console.log("User joined folder:", user.username);
+      setActiveUsers(users);
+    });
+
+    // Listen for user left events
+    socketRef.current.on("folder-user-left", ({ userId, users }) => {
+      console.log("User left folder");
+      setActiveUsers(users);
+    });
+
+    // Listen for document activity
+    socketRef.current.on(
+      "document-activity",
+      ({ userId, documentId, username }) => {
+        setActiveDocuments((prev) => ({
+          ...prev,
+          [userId]: { documentId, username },
+        }));
+      }
+    );
+
+    return () => {
+      socketRef.current.disconnect();
+    };
+  }, [id, currentuser]);
 
   // Determine the navbar actions based on context
   const navbarActions = (
@@ -494,6 +946,55 @@ export default function FolderEditor() {
       </button>
     </>
   );
+
+  // Add this component to render active users working in the folder
+  const ActiveUsersList = ({ activeUsers, activeDocuments }) => {
+    if (!activeUsers.length) return null;
+
+    return (
+      <div className="bg-slate-800 border border-slate-700 rounded-lg p-3 mb-4">
+        <h3 className="text-white text-sm font-medium mb-2">
+          Active Users ({activeUsers.length})
+        </h3>
+        <div className="space-y-2">
+          {activeUsers.map((user) => (
+            <div
+              key={user._id}
+              className="flex items-center justify-between text-sm"
+            >
+              <div className="flex items-center">
+                <div className="w-2 h-2 bg-green-500 rounded-full mr-2"></div>
+                <span className="text-slate-200">{user.username}</span>
+              </div>
+              {activeDocuments[user._id] && (
+                <span className="text-xs text-slate-400">
+                  Editing:{" "}
+                  {activeDocuments[user._id].documentTitle || "Unknown"}
+                </span>
+              )}
+            </div>
+          ))}
+        </div>
+      </div>
+    );
+  };
+  // Move this function earlier in the code, around line 265 (before the editor component)
+  const hasWritePermission = () => {
+    if (!folder || !currentuser) return false;
+
+    // Check if user is owner
+    if (folder.owner === currentuser._id) return true;
+
+    // Check if user is a collaborator with write permission
+    const collaborator = folder.collaborators?.find(
+      (c) => c.user === currentuser._id || c.user?._id === currentuser._id
+    );
+
+    return (
+      collaborator?.permission === "write" ||
+      collaborator?.permission === "admin"
+    );
+  };
 
   return (
     <div className="min-h-screen bg-slate-900 flex flex-col">
@@ -666,7 +1167,6 @@ export default function FolderEditor() {
                   className="h-full overflow-y-auto"
                   currentFolderId={id}
                   selectedFileId={selectedFile?._id}
-                  filteredFileIds={filteredFileIds} // Pass filtered IDs if shared selectively
                   showNestedFiles={true}
                 />
               </div>
@@ -700,18 +1200,11 @@ export default function FolderEditor() {
                   height="100%"
                   defaultLanguage={fileLanguage}
                   language={fileLanguage}
-                  theme="vs-dark"
                   value={fileContent}
+                  theme={theme}
+                  options={{ readOnly: !hasWritePermission() }}
                   onMount={handleEditorDidMount}
-                  options={{
-                    fontSize: 14,
-                    minimap: { enabled: true },
-                    automaticLayout: true,
-                    tabSize: 2,
-                    wordWrap: "on",
-                    lineNumbers: "on",
-                    folding: true,
-                  }}
+                  onChange={(value) => setFileContent(value)}
                 />
               )}
             </div>
@@ -846,6 +1339,14 @@ export default function FolderEditor() {
           </div>
         </motion.div>
       )}
+
+      {/* Active users list - always show in folder editor */}
+      <div className="absolute top-16 right-4 w-[300px] bg-slate-800 border border-slate-700 rounded-lg p-4 shadow-md z-20">
+        <ActiveUsersList
+          activeUsers={activeUsers}
+          activeDocuments={activeDocuments}
+        />
+      </div>
     </div>
   );
 }

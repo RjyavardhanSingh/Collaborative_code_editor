@@ -3,6 +3,7 @@ import Version from "../models/version.model.js";
 import Activity from "../models/activity.model.js";
 import User from "../models/user.model.js";
 import Invitation from "../models/invitation.model.js";
+import Folder from "../models/folder.model.js"; // Import Folder model
 
 export const createDocument = async (req, res) => {
   try {
@@ -95,55 +96,63 @@ export const updateDocument = async (req, res) => {
   try {
     const { title, content, language, isPublic } = req.body;
 
-    const document = await Document.findById(req.params.id);
+    // Get the document directly - don't rely on checkDocumentPermission middleware
+    const document = await Document.findById(req.params.id).populate("folder");
 
     if (!document) {
       return res.status(404).json({ message: "Document not found" });
     }
 
-    const isOwner = document.owner.toString() === req.user._id.toString();
-    const collaborator = document.collaborators.find(
-      (c) => c.user.toString() === req.user._id.toString()
-    );
+    const userId = req.user._id.toString();
 
-    if (!isOwner && (!collaborator || collaborator.permission === "read")) {
+    // Check direct document permissions first
+    const isDocumentOwner = document.owner.toString() === userId;
+    const documentCollaborator = document.collaborators.find(
+      (c) => c.user.toString() === userId
+    );
+    const hasDirectAccess =
+      isDocumentOwner ||
+      (documentCollaborator &&
+        ["write", "admin"].includes(documentCollaborator.permission));
+
+    // Check folder permissions if document belongs to a folder
+    let hasFolderAccess = false;
+    if (document.folder && !hasDirectAccess) {
+      const folderId =
+        typeof document.folder === "object"
+          ? document.folder._id.toString()
+          : document.folder.toString();
+
+      const folder = await Folder.findById(folderId);
+      if (folder) {
+        const isFolderOwner = folder.owner.toString() === userId;
+        const folderCollaborator = folder.collaborators.find(
+          (c) => c.user.toString() === userId
+        );
+        hasFolderAccess =
+          isFolderOwner ||
+          (folderCollaborator &&
+            ["write", "admin"].includes(folderCollaborator.permission));
+      }
+    }
+
+    if (!hasDirectAccess && !hasFolderAccess) {
       return res
         .status(403)
-        .json({ message: "Not authorized to update this document" });
+        .json({ message: "You don't have permission to edit this document" });
     }
 
-    const contentChanged =
-      content !== undefined && content !== document.content;
-
-    document.title = title || document.title;
+    // User has permission to edit, update the document
+    if (title) document.title = title;
     if (content !== undefined) document.content = content;
-    document.language = language || document.language;
-
-    if (isOwner && isPublic !== undefined) {
-      document.isPublic = isPublic;
-    }
+    if (language) document.language = language;
+    if (isPublic !== undefined) document.isPublic = isPublic;
 
     document.lastEditedBy = req.user._id;
+    document.updatedAt = Date.now();
 
-    const updatedDocument = await document.save();
-
-    if (contentChanged) {
-      await Version.create({
-        documentId: document._id,
-        content: document.content,
-        createdBy: req.user._id,
-        message: req.body.message || "Updated document",
-      });
-
-      await Activity.create({
-        documentId: document._id,
-        user: req.user._id,
-        action: "edited",
-        metadata: { title: document.title },
-      });
-    }
-
-    res.json(updatedDocument);
+    await document.save();
+    res.json(document);
   } catch (error) {
     res.status(500).json({ message: error.message });
   }

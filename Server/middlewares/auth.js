@@ -2,6 +2,7 @@ import jwt from "jsonwebtoken";
 import User from "../models/user.model.js";
 import Session from "../models/session.model.js";
 import Document from "../models/document.model.js";
+import Folder from "../models/folder.model.js";
 
 export const protect = async (req, res, next) => {
   try {
@@ -45,46 +46,88 @@ export const protect = async (req, res, next) => {
   }
 };
 
-export const checkDocumentPermission = (requiredPermission) => {
+export const checkDocumentPermission = (requiredPermission = "read") => {
   return async (req, res, next) => {
     try {
-      const documentId = req.params.id;
-      const userId = req.user._id;
-
-      const document = await Document.findById(documentId);
+      const document = await Document.findById(req.params.id).populate(
+        "folder"
+      );
 
       if (!document) {
         return res.status(404).json({ message: "Document not found" });
       }
 
-      if (document.owner.toString() === userId.toString()) {
+      const userId = req.user._id.toString();
+
+      // Check if user is document owner
+      if (document.owner.toString() === userId) {
+        req.document = document;
         return next();
       }
 
+      // Check if user is document collaborator
       const collaborator = document.collaborators.find(
-        (c) => c.user.toString() === userId.toString()
+        (c) => c.user.toString() === userId
       );
 
-      if (!collaborator) {
-        return res.status(403).json({ message: "Access denied" });
+      if (
+        collaborator &&
+        hasRequiredPermission(collaborator.permission, requiredPermission)
+      ) {
+        req.document = document;
+        return next();
       }
 
-      const permissions = {
-        read: ["read", "write", "admin"],
-        write: ["write", "admin"],
-        admin: ["admin"],
-      };
+      // NEW: Check if user has access through folder permissions
+      if (document.folder) {
+        // Handle both object and string IDs
+        const folderId =
+          typeof document.folder === "object"
+            ? document.folder._id.toString()
+            : document.folder.toString();
 
-      if (!permissions[requiredPermission].includes(collaborator.permission)) {
-        return res.status(403).json({ message: "Insufficient permissions" });
+        const folder = await Folder.findById(folderId);
+        if (folder) {
+          // Check if user is folder owner
+          if (folder.owner.toString() === userId) {
+            req.document = document;
+            return next();
+          }
+
+          // Check if user is folder collaborator with required permission
+          const folderCollaborator = folder.collaborators.find(
+            (c) => c.user.toString() === userId
+          );
+
+          if (
+            folderCollaborator &&
+            hasRequiredPermission(
+              folderCollaborator.permission,
+              requiredPermission
+            )
+          ) {
+            req.document = document;
+            return next();
+          }
+        }
       }
 
-      next();
+      res.status(403).json({
+        message: "You do not have permission to access this document",
+      });
     } catch (error) {
-      res.status(500).json({ message: "Server error" });
+      res.status(500).json({ message: error.message });
     }
   };
 };
+
+// Helper function to check permission levels
+function hasRequiredPermission(userPermission, requiredPermission) {
+  const permissionLevels = { read: 1, write: 2, admin: 3 };
+  return (
+    permissionLevels[userPermission] >= permissionLevels[requiredPermission]
+  );
+}
 
 export const errorHandler = (err, req, res, next) => {
   const statusCode = res.statusCode === 200 ? 500 : res.statusCode;

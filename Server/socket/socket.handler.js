@@ -145,17 +145,25 @@ export const setupSocketHandlers = (io) => {
     // Handle joining folders
     socket.on("join-folder", async ({ folderId }) => {
       try {
-        // Find the folder
-        const folder = await Folder.findById(folderId);
+        if (!user) {
+          socket.emit("error", { message: "Authentication required" });
+          return;
+        }
+
+        // Look up the folder to verify access
+        const folder = await Folder.findById(folderId)
+          .populate("owner", "username email avatar")
+          .populate("collaborators.user", "username email avatar");
+
         if (!folder) {
           socket.emit("error", { message: "Folder not found" });
           return;
         }
 
-        // Check permissions
-        const isOwner = folder.owner.toString() === user._id.toString();
+        // Check if user has access
+        const isOwner = folder.owner._id.toString() === user._id.toString();
         const isCollaborator = folder.collaborators.some(
-          (c) => c.user.toString() === user._id.toString()
+          (c) => c.user._id.toString() === user._id.toString()
         );
 
         if (!isOwner && !isCollaborator) {
@@ -163,37 +171,70 @@ export const setupSocketHandlers = (io) => {
           return;
         }
 
-        // Join the folder's socket room
+        // Join the folder room
         socket.join(`folder:${folderId}`);
 
-        // Track users in this folder
+        // Track the user in the folder
         if (!folderUsers.has(folderId)) {
           folderUsers.set(folderId, new Map());
         }
 
-        const folderRoomUsers = folderUsers.get(folderId);
-        folderRoomUsers.set(user._id.toString(), {
+        const userInfo = {
           _id: user._id,
           username: user.username,
           avatar: user.avatar,
+        };
+
+        folderUsers.get(folderId).set(user._id.toString(), userInfo);
+
+        // Broadcast to other users in the folder
+        const folderUsersList = Array.from(folderUsers.get(folderId).values());
+
+        io.to(`folder:${folderId}`).emit("folder-user-joined", {
+          user: userInfo,
+          users: folderUsersList,
         });
 
-        // Notify all users in the folder
-        io.to(`folder:${folderId}`).emit("user-joined", {
-          user: {
-            _id: user._id,
-            username: user.username,
-            avatar: user.avatar,
-          },
-          users: Array.from(folderRoomUsers.values()),
-        });
+        console.log(`User ${user.username} joined folder ${folderId}`);
       } catch (error) {
         console.error("Error joining folder:", error);
-        socket.emit("error", { message: "Server error" });
+        socket.emit("error", { message: "Error joining folder" });
       }
     });
 
-    // Handle folder messages
+    socket.on("leave-folder", ({ folderId }) => {
+      socket.leave(`folder:${folderId}`);
+
+      if (folderUsers.has(folderId)) {
+        const folderUserMap = folderUsers.get(folderId);
+        folderUserMap.delete(user._id.toString());
+
+        if (folderUserMap.size === 0) {
+          folderUsers.delete(folderId);
+        } else {
+          io.to(`folder:${folderId}`).emit("folder-user-left", {
+            userId: user._id,
+            users: Array.from(folderUserMap.values()),
+          });
+        }
+      }
+    });
+
+    socket.on(
+      "document-activity",
+      ({ folderId, documentId, documentTitle }) => {
+        if (!folderUsers.has(folderId)) return;
+
+        // Broadcast to other users which document this user is working on
+        io.to(`folder:${folderId}`).emit("document-activity", {
+          userId: user._id,
+          username: user.username,
+          documentId,
+          documentTitle,
+        });
+      }
+    );
+
     socket.on("send-message", async ({ content, folderId, sender }) => {
       try {
         // Create message in database

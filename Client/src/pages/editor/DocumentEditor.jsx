@@ -461,17 +461,19 @@ export default function DocumentEditor() {
   };
 
   const hasWritePermission = () => {
-    if (!doc || !currentuser) return false;
-    if (doc.owner._id === currentuser._id) return true;
+    if (!folder || !currentuser) return false;
 
-    const collaborator = doc.collaborators?.find(
-      (c) => c.user._id === currentuser._id
+    // Check if user is owner
+    if (folder.owner === currentuser._id) return true;
+
+    // Check if user is a collaborator with write permission
+    const collaborator = folder.collaborators?.find(
+      (c) => c.user === currentuser._id || c.user?._id === currentuser._id
     );
 
     return (
-      collaborator &&
-      (collaborator.permission === "write" ||
-        collaborator.permission === "admin")
+      collaborator?.permission === "write" ||
+      collaborator?.permission === "admin"
     );
   };
 

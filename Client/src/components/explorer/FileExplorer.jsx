@@ -36,7 +36,7 @@ import FolderSharingDialog from "../folders/FolderSharingDialog";
 export default function FileExplorer({
   onFileSelect,
   onFolderSelect,
-  onFolderOpen, // Add this new prop
+  onFolderOpen,
   className,
   sharedOnly = false,
   currentFolderId = null,
@@ -48,11 +48,8 @@ export default function FileExplorer({
   hideHeader = false,
   excludeGlobalFiles = false,
   showNestedFiles = false,
-
   selectionMode = false,
   dashboardMode = false,
-
-  filteredFileIds = null, // If set, only show these file IDs
 }) {
   const { currentuser } = useAuth();
   const [folderTree, setFolderTree] = useState([]);
@@ -80,56 +77,75 @@ export default function FileExplorer({
   const [selectedFolder, setSelectedFolder] = useState(null);
   const [selectedFile, setSelectedFile] = useState(null);
 
-  // Modified fetchFolderStructure to support filtering for files or folders only
+  // Add getAllSubfolderIds here at the component level
+  const getAllSubfolderIds = (folders, rootId) => {
+    const result = [rootId]; // Include the root folder itself
+
+    const findChildren = (parentId) => {
+      folders.forEach((folder) => {
+        if (folder.parentFolder?.toString() === parentId?.toString()) {
+          result.push(folder._id);
+          findChildren(folder._id); // Recursively find children
+        }
+      });
+    };
+
+    findChildren(rootId);
+    console.log(`Found subfolder IDs for ${rootId}:`, result);
+    return result;
+  };
+
+  // Modified fetchFolderStructure function
   const fetchFolderStructure = async () => {
     try {
       setLoading(true);
       setError(null);
 
-      // Fetch folders with error handling
+      // Fetch folders normally
       let folders = [];
+      let documents = [];
+
       try {
         const foldersResponse = await api.get("/api/folders");
         folders = foldersResponse.data || [];
       } catch (folderErr) {
         console.warn("Could not fetch folders:", folderErr);
-        // Continue with empty folders array
       }
 
-      // Fetch documents with error handling
-      let documents = [];
+      // For documents, use folder-specific endpoint when we have a current folder ID
       try {
-        const documentsResponse = await api.get("/api/documents");
-        documents = documentsResponse.data || [];
+        if (currentFolderId) {
+          // Use the folder-specific endpoint
+          console.log(`Fetching documents for folder: ${currentFolderId}`);
+          const folderDocsResponse = await api.get(
+            `/api/folders/${currentFolderId}/documents`
+          );
+
+          if (
+            folderDocsResponse.data &&
+            folderDocsResponse.data.flatDocuments
+          ) {
+            // Some APIs return flatDocuments property
+            documents = folderDocsResponse.data.flatDocuments || [];
+          } else {
+            // Otherwise use the whole response
+            documents = folderDocsResponse.data || [];
+          }
+
+          console.log(
+            `Received ${documents.length} documents for folder ${currentFolderId}`
+          );
+        } else {
+          // No specific folder, use general endpoint
+          const documentsResponse = await api.get("/api/documents");
+          documents = documentsResponse.data || [];
+        }
       } catch (docErr) {
         console.error("Could not fetch documents:", docErr);
-        // Continue with empty documents array
       }
 
-      // If both requests failed, show error
-      if (folders.length === 0 && documents.length === 0) {
-        setError(
-          "Failed to load folders and files. Server may be unavailable."
-        );
-        setFolderTree([]);
-        setLoading(false);
-        return;
-      }
-
-      // Continue with the data we have - filter documents if needed
+      // Simplified filtering - no filteredFileIds logic
       let filteredDocuments = documents;
-
-      // Apply filtering if filteredFileIds is set
-      if (filteredFileIds && filteredFileIds.length > 0) {
-        console.log("Filtering files by IDs:", filteredFileIds);
-
-        // Filter documents to only include those in filteredFileIds
-        filteredDocuments = documents.filter((doc) =>
-          filteredFileIds.some((id) => id === doc._id.toString())
-        );
-
-        console.log("Filtered documents:", filteredDocuments);
-      }
 
       if (sharedOnly && currentuser) {
         filteredDocuments = documents.filter(
@@ -139,35 +155,26 @@ export default function FileExplorer({
         );
       }
 
-      // If a specific folder is selected and we're not showing all files
-      if (currentFolderId && !showAllFiles) {
-        // Convert IDs to strings for reliable comparison
+      // Standard folder-based filtering
+      if (currentFolderId && !showAllFiles && !showNestedFiles) {
         filteredDocuments = documents.filter(
           (doc) => doc.folder?.toString() === currentFolderId?.toString()
         );
-      } else if (currentFolderId && showNestedFiles) {
-        // If showNestedFiles is true, collect files from all subfolders
-        // Get all subfolder IDs recursively
+      } else if (currentFolderId && (showAllFiles || showNestedFiles)) {
         const allSubfolderIds = getAllSubfolderIds(folders, currentFolderId);
-
-        // Include files from current folder and all subfolders
-        filteredDocuments = documents.filter(
-          (doc) =>
-            doc.folder?.toString() === currentFolderId?.toString() ||
-            allSubfolderIds.includes(doc.folder?.toString())
-        );
+        filteredDocuments = documents.filter((doc) => {
+          return allSubfolderIds.includes(doc.folder?.toString());
+        });
       }
 
-      // Apply filesOnly or foldersOnly filters if specified
+      // Build tree normally
       let finalTree;
       if (filesOnly) {
-        // Only create a tree with files, no folders
         finalTree = filteredDocuments.map((doc) => ({
           ...doc,
           type: "document",
         }));
       } else if (foldersOnly) {
-        // Only create a tree with folders, no files
         finalTree = buildFolderTree(
           folders,
           [],
@@ -176,13 +183,12 @@ export default function FileExplorer({
           true
         );
       } else {
-        // Build the normal combined tree
         finalTree = buildFolderTree(
           folders,
           filteredDocuments,
           currentFolderId,
           showAllFiles,
-          !filesOnly // Exclude global files when showing folders
+          !filesOnly
         );
       }
 
@@ -218,7 +224,7 @@ export default function FileExplorer({
   // Replace existing fetchFolderStructure useEffect with this
   useEffect(() => {
     fetchFolderStructure();
-  }, [currentFolderId, showAllFiles, currentDocumentId]);
+  }, [currentFolderId, showAllFiles, currentDocumentId]); // Remove filteredFileIds
 
   // Build a tree structure of folders and files
   const buildFolderTree = (
@@ -228,6 +234,12 @@ export default function FileExplorer({
     showAllFiles,
     excludeGlobalFiles = false // Add this parameter
   ) => {
+    console.log("Building tree with documents:", documents.length);
+    console.log(
+      "Documents passed to buildFolderTree:",
+      documents.map((d) => ({ id: d._id, title: d.title, folder: d.folder }))
+    );
+
     // Create a map of all folders by ID for quick lookup
     const folderMap = new Map();
     folders.forEach((folder) => {
@@ -243,7 +255,6 @@ export default function FileExplorer({
       let currentFolder = folderMap.get(currentFolderId);
       if (!currentFolder) return [];
 
-      // Get all child folders recursively
       const getChildFolders = (folderId) => {
         const children = Array.from(folderMap.values())
           .filter((folder) => folder.parentFolder === folderId)
@@ -252,18 +263,33 @@ export default function FileExplorer({
             return folder;
           });
 
-        // Get documents for this folder level
+        // Get documents for this folder level - REMOVE all filteredFileIds logic
         const folderDocuments = documents
-          .filter((doc) => doc.folder?.toString() === folderId?.toString())
+          .filter((doc) => {
+            const belongs = doc.folder?.toString() === folderId?.toString();
+            if (belongs) {
+              console.log(
+                `Document ${doc.title} belongs to folder ${folderId}`
+              );
+            }
+            return belongs;
+          })
           .map((doc) => ({ ...doc, type: "document" }));
+
+        console.log(
+          `Folder ${folderId} has ${folderDocuments.length} documents`
+        );
+        console.log(
+          "Documents in this folder:",
+          folderDocuments.map((d) => ({ id: d._id, title: d.title }))
+        );
 
         return [...children, ...folderDocuments];
       };
 
       currentFolder.children = getChildFolders(currentFolderId);
 
-      // If showNestedFiles is true, get all documents from all nested folders and add them directly
-      // to the current folder for easy access
+      // If showNestedFiles is true, get all documents from all nested folders
       if (showNestedFiles) {
         const getAllNestedDocuments = (folders, documents, folderId) => {
           const nestedDocs = [];
@@ -289,13 +315,15 @@ export default function FileExplorer({
           return nestedDocs;
         };
 
-        // Add all nested documents to current folder
         const allNestedDocs = getAllNestedDocuments(
           folders,
           documents,
           currentFolderId
         );
         currentFolder.allNestedDocuments = allNestedDocs;
+        console.log(
+          `Added ${allNestedDocs.length} nested documents to current folder`
+        );
       }
 
       return [currentFolder];
@@ -319,26 +347,26 @@ export default function FileExplorer({
       documents.forEach((doc) => {
         const documentItem = { ...doc, type: "document" };
 
-        // Ensure both IDs are strings for comparison
         if (doc.folder) {
           const folderIdStr =
             typeof doc.folder === "object" ? doc.folder.toString() : doc.folder;
 
-          // Find the folder in our map using string comparison
           let found = false;
           folderMap.forEach((folder, key) => {
             if (key.toString() === folderIdStr) {
+              // Normal case - add all documents
               folder.children.push(documentItem);
               found = true;
             }
           });
 
-          // If no folder found and we're not folders-only, add to root
+          // Only add to root if not found in any folder
           if (!found && !foldersOnly) {
+            // Normal case - add all orphaned documents
             rootFolders.push(documentItem);
           }
         } else if (!foldersOnly && !excludeGlobalFiles) {
-          // Only add global documents to root if we're not excluding them
+          // Handle global files (no folder) - Normal case - add all global files
           rootFolders.push(documentItem);
         }
       });
