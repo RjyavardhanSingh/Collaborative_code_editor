@@ -223,10 +223,12 @@ export const setupSocketHandlers = (io) => {
     socket.on(
       "document-activity",
       ({ folderId, documentId, documentTitle }) => {
-        if (!folderUsers.has(folderId)) return;
+        console.log(
+          `User ${user.username} is working on document ${documentTitle} in folder ${folderId}`
+        );
 
-        // Broadcast to other users which document this user is working on
-        io.to(`folder:${folderId}`).emit("document-activity", {
+        // Broadcast to other users in the folder
+        socket.to(`folder:${folderId}`).emit("document-activity", {
           userId: user._id,
           username: user.username,
           documentId,

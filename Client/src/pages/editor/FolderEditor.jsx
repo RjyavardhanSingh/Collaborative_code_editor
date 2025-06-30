@@ -110,12 +110,12 @@ export default function FolderEditor() {
     // Update the URL with document ID as a query parameter
     navigate(`/folders/${id}?document=${file._id}`, { replace: true });
 
-    // Emit document activity
+    // Emit document activity with title
     if (socketRef.current) {
       socketRef.current.emit("document-activity", {
         folderId: id,
         documentId: file._id,
-        documentTitle: file.title,
+        documentTitle: file.title, // Make sure this is included
       });
     }
 
@@ -386,16 +386,26 @@ export default function FolderEditor() {
 
     // Send initial user info
     cursorSocket.onopen = () => {
-      cursorSocket.send(
-        JSON.stringify({
-          type: "connect",
-          user: {
-            id: currentuser._id,
-            username: currentuser.username,
-            avatar: currentuser.avatar,
-          },
-        })
-      );
+      console.log("🔗 Cursor WebSocket connected");
+      const connectMessage = {
+        type: "connect",
+        user: {
+          id: currentuser._id,
+          username: currentuser.username,
+          avatar: currentuser.avatar,
+        },
+      };
+      console.log("Sending connect message:", connectMessage);
+      cursorSocket.send(JSON.stringify(connectMessage));
+    };
+
+    // Handle connection errors
+    cursorSocket.onerror = (error) => {
+      console.error("❌ Cursor WebSocket error:", error);
+    };
+
+    cursorSocket.onclose = (event) => {
+      console.log("🔌 Cursor WebSocket closed:", event.code, event.reason);
     };
 
     // Map to store cursor decorations by user ID
@@ -414,21 +424,22 @@ export default function FolderEditor() {
       )
         return;
 
-      cursorSocket.send(
-        JSON.stringify({
-          type: "cursor",
-          position: {
-            lineNumber: position.lineNumber,
-            column: position.column,
-            selection: {
-              startLineNumber: selection.startLineNumber,
-              startColumn: selection.startColumn,
-              endLineNumber: selection.endLineNumber,
-              endColumn: selection.endColumn,
-            },
+      const cursorMessage = {
+        type: "cursor",
+        position: {
+          lineNumber: position.lineNumber,
+          column: position.column,
+          selection: {
+            startLineNumber: selection.startLineNumber,
+            startColumn: selection.startColumn,
+            endLineNumber: selection.endLineNumber,
+            endColumn: selection.endColumn,
           },
-        })
-      );
+        },
+      };
+
+      console.log("Sending cursor position:", cursorMessage);
+      cursorSocket.send(JSON.stringify(cursorMessage));
     };
 
     // Debounce the update function
@@ -446,10 +457,19 @@ export default function FolderEditor() {
       updateCursorDebounced
     );
 
-    // Handle incoming cursor positions
-    cursorSocket.OnMessage = (event) => {
+    // FIXED: Handle incoming cursor positions with better error handling
+    cursorSocket.onmessage = (event) => {
       try {
+        console.log("Raw cursor message received:", event.data);
+
+        // Check if it's valid JSON
+        if (!event.data || typeof event.data !== "string") {
+          console.warn("Invalid message format:", event.data);
+          return;
+        }
+
         const data = JSON.parse(event.data);
+        console.log("📍 Parsed cursor data:", data);
 
         if (data.type === "cursor" && data.userId !== currentuser._id) {
           const userId = data.userId;
@@ -457,33 +477,15 @@ export default function FolderEditor() {
           const color = getRandomColor(userId);
           const position = data.position;
 
+          console.log(
+            `👁️ Updating cursor for ${username} at line ${position.lineNumber}`
+          );
+
           // Remove previous cursor for this user if it exists
           const oldDecorations = userCursors.get(userId);
           if (oldDecorations) {
             editor.deltaDecorations(oldDecorations, []);
           }
-
-          // Create cursor element
-          const cursorDiv = document.createElement("div");
-          cursorDiv.className = "remote-cursor";
-          cursorDiv.style.backgroundColor = color;
-          cursorDiv.style.width = "2px";
-          cursorDiv.style.height = "18px";
-
-          // Create label element
-          const labelDiv = document.createElement("div");
-          labelDiv.className = "remote-cursor-label";
-          labelDiv.textContent = username;
-          labelDiv.style.backgroundColor = color;
-          labelDiv.style.color = "#fff";
-          labelDiv.style.padding = "0 4px";
-          labelDiv.style.borderRadius = "2px";
-          labelDiv.style.fontSize = "12px";
-          labelDiv.style.position = "absolute";
-          labelDiv.style.top = "-18px";
-          labelDiv.style.whiteSpace = "nowrap";
-
-          cursorDiv.appendChild(labelDiv);
 
           // Add cursor decoration
           const decorations = editor.deltaDecorations(
@@ -519,42 +521,47 @@ export default function FolderEditor() {
           }
 
           styleEl.textContent = `
-          .remote-cursor-before-${userId} {
-            position: relative;
-          }
-          .remote-cursor-before-${userId}::before {
-            content: "";
-            position: absolute;
-            height: 18px;
-            width: 2px;
-            background-color: ${color};
-            z-index: 1000;
-          }
-          .remote-cursor-before-${userId}::after {
-            content: "${username}";
-            position: absolute;
-            top: -18px;
-            left: 0;
-            background: ${color};
-            color: white;
-            padding: 0 4px;
-            font-size: 12px;
-            border-radius: 2px;
-            white-space: nowrap;
-            z-index: 1000;
-          }
-        `;
+            .remote-cursor-before-${userId} {
+              position: relative;
+            }
+            .remote-cursor-before-${userId}::before {
+              content: "";
+              position: absolute;
+              height: 18px;
+              width: 2px;
+              background-color: ${color};
+              z-index: 1000;
+            }
+            .remote-cursor-before-${userId}::after {
+              content: "${username}";
+              position: absolute;
+              top: -18px;
+              left: 0;
+              background: ${color};
+              color: white;
+              padding: 0 4px;
+              font-size: 12px;
+              border-radius: 2px;
+              white-space: nowrap;
+              z-index: 1000;
+            }
+          `;
         }
       } catch (err) {
-        console.error("Cursor tracking error:", err);
+        console.error("❌ Cursor tracking error:", err);
+        console.error("❌ Raw message that caused error:", event.data);
       }
     };
 
-    // Send initial position
-    setTimeout(sendCursorPosition, 500);
+    // Send initial position after a delay
+    setTimeout(() => {
+      console.log("📍 Sending initial cursor position");
+      sendCursorPosition();
+    }, 1000); // Increased delay to ensure connection is stable
 
     // Return cleanup function
     return () => {
+      console.log("🧹 Cleaning up cursor tracking");
       cursorDisposable.dispose();
       selectionDisposable.dispose();
       if (cursorTimeout) clearTimeout(cursorTimeout);
@@ -802,15 +809,20 @@ export default function FolderEditor() {
     });
 
     // Listen for document activity
-    socketRef.current.on(
-      "document-activity",
-      ({ userId, documentId, username }) => {
-        setActiveDocuments((prev) => ({
-          ...prev,
-          [userId]: { documentId, username },
-        }));
-      }
-    );
+    socketRef.current.on("document-activity", (data) => {
+      console.log("📄 Document activity received:", data);
+
+      const { userId, documentId, username, documentTitle } = data;
+
+      setActiveDocuments((prev) => ({
+        ...prev,
+        [userId]: {
+          documentId,
+          username,
+          documentTitle,
+        },
+      }));
+    });
 
     return () => {
       socketRef.current.disconnect();
@@ -947,38 +959,6 @@ export default function FolderEditor() {
     </>
   );
 
-  // Add this component to render active users working in the folder
-  const ActiveUsersList = ({ activeUsers, activeDocuments }) => {
-    if (!activeUsers.length) return null;
-
-    return (
-      <div className="bg-slate-800 border border-slate-700 rounded-lg p-3 mb-4">
-        <h3 className="text-white text-sm font-medium mb-2">
-          Active Users ({activeUsers.length})
-        </h3>
-        <div className="space-y-2">
-          {activeUsers.map((user) => (
-            <div
-              key={user._id}
-              className="flex items-center justify-between text-sm"
-            >
-              <div className="flex items-center">
-                <div className="w-2 h-2 bg-green-500 rounded-full mr-2"></div>
-                <span className="text-slate-200">{user.username}</span>
-              </div>
-              {activeDocuments[user._id] && (
-                <span className="text-xs text-slate-400">
-                  Editing:{" "}
-                  {activeDocuments[user._id].documentTitle || "Unknown"}
-                </span>
-              )}
-            </div>
-          ))}
-        </div>
-      </div>
-    );
-  };
-  // Move this function earlier in the code, around line 265 (before the editor component)
   const hasWritePermission = () => {
     if (!folder || !currentuser) return false;
 
@@ -1239,7 +1219,7 @@ export default function FolderEditor() {
       {/* Collaborator management modal */}
       {isCollaboratorsOpen && (
         <CollaboratorManagement
-          documentId={folder._id} // You may need to adapt this component to work with folders
+          documentId={folder._id}
           collaborators={collaborators}
           setCollaborators={setCollaborators}
           activeUsers={activeUsers}
@@ -1249,7 +1229,8 @@ export default function FolderEditor() {
             setIsCollaboratorsOpen(false);
             // Open invitation modal or use FolderSharingDialog here
           }}
-          isFolder={true} // Add this prop to handle folder-specific logic
+          isFolder={true}
+          activeDocuments={activeDocuments} // Add this new prop
         />
       )}
 
@@ -1339,14 +1320,6 @@ export default function FolderEditor() {
           </div>
         </motion.div>
       )}
-
-      {/* Active users list - always show in folder editor */}
-      <div className="absolute top-16 right-4 w-[300px] bg-slate-800 border border-slate-700 rounded-lg p-4 shadow-md z-20">
-        <ActiveUsersList
-          activeUsers={activeUsers}
-          activeDocuments={activeDocuments}
-        />
-      </div>
     </div>
   );
 }

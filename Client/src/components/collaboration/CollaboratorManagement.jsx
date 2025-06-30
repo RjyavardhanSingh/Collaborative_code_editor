@@ -11,7 +11,8 @@ export default function CollaboratorManagement({
   currentuser,
   onClose,
   onInviteClick,
-  isFolder = false, // New prop to handle folder-specific behavior
+  isFolder = false,
+  activeDocuments = {},
 }) {
   const [editingId, setEditingId] = useState(null);
   const [editPermission, setEditPermission] = useState("");
@@ -106,16 +107,32 @@ export default function CollaboratorManagement({
     );
   };
 
+  // Add this helper function to get current document for a user
+  const getCurrentDocument = (userId) => {
+    const activeDoc = activeDocuments[userId];
+    console.log("Active document for user", userId, ":", activeDoc); // Debug log
+    return activeDoc || null;
+  };
+
+  // Add this helper function to check if user is currently active
+  const isUserActive = (userId) => {
+    return activeUsers.some(
+      (user) => user._id === userId || user.id === userId
+    );
+  };
+
   return (
     <motion.div
       initial={{ x: 300, opacity: 0 }}
       animate={{ x: 0, opacity: 1 }}
       exit={{ x: 300, opacity: 0 }}
-      className="absolute top-16 right-0 h-[calc(100%-4rem)] w-[300px] border-l border-slate-700 bg-slate-800 overflow-y-auto shadow-xl z-10"
+      className="absolute top-16 right-0 h-[calc(100%-4rem)] w-[350px] border-l border-slate-700 bg-slate-800 overflow-y-auto shadow-xl z-10"
     >
       <div className="p-4">
         <div className="flex items-center justify-between mb-4">
-          <h2 className="text-white font-bold">Collaborators</h2>
+          <h2 className="text-white font-bold">
+            {isFolder ? "Project Collaborators" : "Document Collaborators"}
+          </h2>
           <button onClick={onClose} className="text-slate-400 hover:text-white">
             <FiX />
           </button>
@@ -127,155 +144,214 @@ export default function CollaboratorManagement({
           </div>
         )}
 
+        {/* Active Users Section - New Enhanced Version */}
         <div className="mb-6">
-          <h3 className="text-slate-300 text-sm font-medium mb-2">
-            Active Users ({activeUsers.length})
+          <h3 className="text-slate-300 text-sm font-medium mb-3 flex items-center gap-2">
+            <div className="w-2 h-2 bg-green-500 rounded-full"></div>
+            Currently Active ({activeUsers.length})
           </h3>
-          <div className="space-y-2">
-            {activeUsers.map((user) => (
-              <div
-                key={user._id}
-                className="flex items-center p-2 bg-slate-700/50 rounded"
-              >
-                <div
-                  className="w-3 h-3 rounded-full mr-2"
-                  style={{ backgroundColor: getRandomColor(user._id) }}
-                ></div>
-                <span className="text-white text-sm">{user.username}</span>
-                <div className="ml-auto flex items-center">
-                  <div className="w-2 h-2 bg-green-500 rounded-full"></div>
-                </div>
-              </div>
-            ))}
-            {activeUsers.length === 0 && (
-              <p className="text-slate-400 text-sm italic py-1">
-                No active users
-              </p>
-            )}
-          </div>
-        </div>
 
-        <div>
-          <h3 className="text-slate-300 text-sm font-medium mb-2">
-            All Collaborators ({collaborators.length})
-          </h3>
-          <div className="space-y-2">
-            {collaborators.map((collab) => (
-              <div
-                key={collab.user._id}
-                className="flex flex-col p-2 bg-slate-700/50 rounded"
-              >
-                <div className="flex items-center">
-                  {collab.user.avatar ? (
-                    <img
-                      src={collab.user.avatar}
-                      alt={collab.user.username}
-                      className="w-6 h-6 rounded-full mr-2"
-                    />
-                  ) : (
-                    <div className="w-6 h-6 rounded-full bg-blue-600 flex items-center justify-center text-white text-xs mr-2">
-                      {collab.user.username.charAt(0).toUpperCase()}
-                    </div>
-                  )}
-                  <span className="text-white text-sm flex-1">
-                    {collab.user.username}
-                    {collab.isOwner && (
-                      <span className="ml-1 text-xs text-blue-400">
-                        (Owner)
-                      </span>
-                    )}
-                    {!collab.isOwner &&
-                      collab.user._id === currentuser?._id && (
-                        <span className="ml-1 text-xs text-green-400">
-                          (You)
+          {activeUsers.length > 0 ? (
+            <div className="space-y-3">
+              {activeUsers.map((user) => {
+                const currentDoc = getCurrentDocument(user._id || user.id);
+                return (
+                  <div
+                    key={user._id || user.id}
+                    className="flex items-start p-3 bg-slate-700/50 rounded-lg border-l-4 border-green-500"
+                  >
+                    <div
+                      className="w-3 h-3 rounded-full mr-3 mt-1 flex-shrink-0"
+                      style={{
+                        backgroundColor: getRandomColor(user._id || user.id),
+                      }}
+                    ></div>
+                    <div className="flex-1 min-w-0">
+                      <div className="flex items-center justify-between">
+                        <span className="text-white text-sm font-medium truncate">
+                          {user.username}
+                        </span>
+                        <div className="w-2 h-2 bg-green-500 rounded-full animate-pulse"></div>
+                      </div>
+                      {currentDoc ? (
+                        <div className="mt-1">
+                          <span className="text-xs text-blue-400 bg-blue-500/20 px-2 py-1 rounded">
+                            📝 Editing:{" "}
+                            {currentDoc.documentTitle ||
+                              currentDoc.documentTitle ||
+                              "Unknown file"}
+                          </span>
+                        </div>
+                      ) : (
+                        <span className="text-xs text-slate-400 mt-1 block">
+                          🕐 Currently browsing
                         </span>
                       )}
-                  </span>
-
-                  <div className="flex items-center">
-                    {getOnlineStatus(collab.user._id) && (
-                      <div className="w-2 h-2 bg-green-500 rounded-full mr-2"></div>
-                    )}
-
-                    <span className="text-xs bg-slate-600 px-2 py-0.5 rounded">
-                      {collab.permission}
-                    </span>
+                    </div>
                   </div>
-                </div>
-              </div>
-            ))}
-          </div>
-
-          {canManageCollaborators() && (
-            <button
-              onClick={onInviteClick}
-              className="mt-4 w-full py-2 bg-blue-600 text-white rounded hover:bg-blue-700 transition-colors text-sm flex items-center justify-center"
-            >
-              <FiUserPlus className="mr-2" /> Invite More Collaborators
-            </button>
+                );
+              })}
+            </div>
+          ) : (
+            <div className="p-3 bg-slate-700/30 rounded-lg text-center">
+              <p className="text-slate-400 text-sm">
+                No users currently active
+              </p>
+            </div>
           )}
         </div>
 
-        {hasAdminRights() && (
-          <div className="mt-4 border-t border-slate-700 pt-4">
-            <h3 className="text-slate-300 text-sm font-medium mb-2">
-              Manage Collaborators
-            </h3>
-            <table className="w-full text-sm">
-              <thead className="text-xs text-slate-400">
-                <tr>
-                  <th className="text-left pb-2">User</th>
-                  <th className="text-left pb-2">Permission</th>
-                  <th className="text-right pb-2">Actions</th>
-                </tr>
-              </thead>
-              <tbody>
-                {collaborators
-                  .filter((c) => !c.isOwner)
-                  .map((collab) => (
-                    <tr
-                      key={collab.user._id}
-                      className="border-t border-slate-700/50"
-                    >
-                      <td className="py-2 flex items-center">
-                        <div className="w-6 h-6 rounded-full bg-blue-600 flex items-center justify-center text-white text-xs mr-2">
-                          {collab.user.username?.charAt(0).toUpperCase() || "?"}
-                        </div>
-                        <span className="text-white truncate max-w-[80px]">
+        {/* All Collaborators Section - Enhanced */}
+        <div>
+          <h3 className="text-slate-300 text-sm font-medium mb-3">
+            All Collaborators ({collaborators.length})
+          </h3>
+          <div className="space-y-2">
+            {collaborators.map((collab) => {
+              const isActive = isUserActive(collab.user._id);
+              const currentDoc = getCurrentDocument(collab.user._id);
+
+              return (
+                <div
+                  key={collab.user._id}
+                  className={`flex flex-col p-3 rounded-lg transition-all ${
+                    isActive
+                      ? "bg-slate-700/70 border border-green-500/30"
+                      : "bg-slate-700/50"
+                  }`}
+                >
+                  <div className="flex items-center">
+                    {collab.user.avatar ? (
+                      <img
+                        src={collab.user.avatar}
+                        alt={collab.user.username}
+                        className="w-7 h-7 rounded-full mr-3"
+                      />
+                    ) : (
+                      <div className="w-7 h-7 rounded-full bg-blue-600 flex items-center justify-center text-white text-xs mr-3">
+                        {collab.user.username.charAt(0).toUpperCase()}
+                      </div>
+                    )}
+
+                    <div className="flex-1 min-w-0">
+                      <div className="flex items-center gap-2">
+                        <span className="text-white text-sm flex-1 truncate">
                           {collab.user.username}
                         </span>
-                      </td>
-                      <td className="py-2">
-                        <select
-                          value={collab.permission}
-                          onChange={(e) =>
-                            handleChangePermission(
-                              collab.user._id,
-                              e.target.value
-                            )
-                          }
-                          className="text-xs bg-slate-600 border border-slate-500 text-white rounded px-1 py-0.5"
-                        >
-                          <option value="read">Read only</option>
-                          <option value="write">Can edit</option>
-                          <option value="admin">Admin</option>
-                        </select>
-                      </td>
-                      <td className="py-2 text-right">
-                        <button
-                          onClick={() =>
-                            handleRemoveCollaborator(collab.user._id)
-                          }
-                          className="text-red-400 hover:text-red-300 px-1"
-                          title="Remove collaborator"
-                        >
-                          <FiTrash2 size={14} />
-                        </button>
-                      </td>
-                    </tr>
-                  ))}
-              </tbody>
-            </table>
+
+                        {/* Activity indicator */}
+                        {isActive && (
+                          <div className="w-2 h-2 bg-green-500 rounded-full"></div>
+                        )}
+                      </div>
+
+                      {/* User status badges */}
+                      <div className="flex items-center gap-1 mt-1">
+                        <span className="text-xs bg-slate-600 px-2 py-0.5 rounded">
+                          {collab.permission}
+                        </span>
+
+                        {collab.isOwner && (
+                          <span className="text-xs bg-yellow-600 px-2 py-0.5 rounded">
+                            Owner
+                          </span>
+                        )}
+
+                        {!collab.isOwner &&
+                          collab.user._id === currentuser?._id && (
+                            <span className="text-xs bg-green-600 px-2 py-0.5 rounded">
+                              You
+                            </span>
+                          )}
+                      </div>
+
+                      {/* Current activity */}
+                      {isActive && currentDoc && (
+                        <div className="mt-2">
+                          <span className="text-xs text-blue-300 bg-blue-500/20 px-2 py-1 rounded block">
+                            📝 Currently editing:{" "}
+                            {currentDoc.documentTitle || "Unknown file"}
+                          </span>
+                        </div>
+                      )}
+
+                      {isActive && !currentDoc && (
+                        <div className="mt-2">
+                          <span className="text-xs text-slate-400">
+                            🕐 Browsing project
+                          </span>
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+
+        {/* Invite button */}
+        {canManageCollaborators() && (
+          <button
+            onClick={onInviteClick}
+            className="mt-4 w-full py-2 bg-blue-600 text-white rounded hover:bg-blue-700 transition-colors text-sm flex items-center justify-center"
+          >
+            <FiUserPlus className="mr-2" /> Invite More Collaborators
+          </button>
+        )}
+
+        {/* Management section for admins */}
+        {hasAdminRights() && (
+          <div className="mt-6 border-t border-slate-700 pt-4">
+            <h3 className="text-slate-300 text-sm font-medium mb-3">
+              Manage Permissions
+            </h3>
+            <div className="space-y-2">
+              {collaborators
+                .filter((c) => !c.isOwner)
+                .map((collab) => (
+                  <div
+                    key={collab.user._id}
+                    className="flex items-center justify-between p-2 bg-slate-700/30 rounded"
+                  >
+                    <div className="flex items-center">
+                      <div className="w-6 h-6 rounded-full bg-blue-600 flex items-center justify-center text-white text-xs mr-2">
+                        {collab.user.username?.charAt(0).toUpperCase() || "?"}
+                      </div>
+                      <span className="text-white text-sm truncate max-w-[100px]">
+                        {collab.user.username}
+                      </span>
+                    </div>
+
+                    <div className="flex items-center gap-2">
+                      <select
+                        value={collab.permission}
+                        onChange={(e) =>
+                          handleChangePermission(
+                            collab.user._id,
+                            e.target.value
+                          )
+                        }
+                        className="text-xs bg-slate-600 border border-slate-500 text-white rounded px-2 py-1"
+                      >
+                        <option value="read">Read only</option>
+                        <option value="write">Can edit</option>
+                        <option value="admin">Admin</option>
+                      </select>
+
+                      <button
+                        onClick={() =>
+                          handleRemoveCollaborator(collab.user._id)
+                        }
+                        className="text-red-400 hover:text-red-300 px-1"
+                        title="Remove collaborator"
+                      >
+                        <FiTrash2 size={14} />
+                      </button>
+                    </div>
+                  </div>
+                ))}
+            </div>
           </div>
         )}
       </div>

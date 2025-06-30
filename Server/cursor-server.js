@@ -39,24 +39,46 @@ wss.on("connection", (ws, req) => {
   ws.on("message", (message) => {
     try {
       const data = JSON.parse(message);
+      console.log(
+        "Received cursor message:",
+        data.type,
+        "from",
+        data.user?.username || "unknown"
+      );
 
-      // Store client info on identification
-      if (data.type === "identify") {
+      // Store client info on connect
+      if (data.type === "connect" && data.user) {
         clientData = {
-          userId: data.userId,
-          username: data.username,
+          userId: data.user.id,
+          username: data.user.username,
+          avatar: data.user.avatar,
         };
-        console.log(`Client identified: ${clientData.username}`);
+        console.log(
+          `Client identified: ${clientData.username} (${clientData.userId})`
+        );
+        return; // Don't broadcast connect messages
       }
 
-      // Broadcast to all clients except sender
-      docClients.forEach((client) => {
-        if (client !== ws && client.readyState === WebSocket.OPEN) {
-          client.send(message);
-        }
-      });
+      // Handle cursor position updates
+      if (data.type === "cursor" && clientData) {
+        // Add user info to cursor data before broadcasting
+        const cursorMessage = {
+          ...data,
+          userId: clientData.userId,
+          username: clientData.username,
+          avatar: clientData.avatar,
+        };
+
+        // Broadcast to all clients except sender
+        docClients.forEach((client) => {
+          if (client !== ws && client.readyState === WebSocket.OPEN) {
+            client.send(JSON.stringify(cursorMessage));
+          }
+        });
+      }
     } catch (err) {
       console.error("Error handling cursor message:", err);
+      console.error("Raw message:", message.toString());
     }
   });
 
