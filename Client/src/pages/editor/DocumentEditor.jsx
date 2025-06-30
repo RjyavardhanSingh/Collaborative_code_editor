@@ -461,13 +461,49 @@ export default function DocumentEditor() {
   };
 
   const hasWritePermission = () => {
-    if (!folder || !currentuser) return false;
+    if (!doc || !currentuser) return false;
 
-    // Check if user is owner
-    if (folder.owner === currentuser._id) return true;
+    // Check if user is the document owner
+    if (doc.owner === currentuser._id || doc.owner?._id === currentuser._id) {
+      return true;
+    }
 
-    // Check if user is a collaborator with write permission
-    const collaborator = folder.collaborators?.find(
+    // For global files (not in a folder), check document-level permissions
+    if (!doc.folder) {
+      // Check if user is a collaborator with write permission
+      const collaborator = doc.collaborators?.find(
+        (c) => c.user === currentuser._id || c.user?._id === currentuser._id
+      );
+
+      return (
+        collaborator?.permission === "write" ||
+        collaborator?.permission === "admin"
+      );
+    }
+
+    // For files in a folder, check folder-level permissions
+    if (currentFolder) {
+      // Check if user is folder owner
+      if (
+        currentFolder.owner === currentuser._id ||
+        currentFolder.owner?._id === currentuser._id
+      ) {
+        return true;
+      }
+
+      // Check if user is a folder collaborator with write permission
+      const folderCollaborator = currentFolder.collaborators?.find(
+        (c) => c.user === currentuser._id || c.user?._id === currentuser._id
+      );
+
+      return (
+        folderCollaborator?.permission === "write" ||
+        folderCollaborator?.permission === "admin"
+      );
+    }
+
+    // Fallback: check document-level permissions
+    const collaborator = doc.collaborators?.find(
       (c) => c.user === currentuser._id || c.user?._id === currentuser._id
     );
 
@@ -1075,24 +1111,27 @@ export default function DocumentEditor() {
       />
 
       <div className="flex flex-1 relative" id="editor-container">
-        {/* Add sidebar toggle button */}
-        <button
-          onClick={() => setIsExplorerOpen(!isExplorerOpen)}
-          className="absolute left-0 top-1/2 transform -translate-y-1/2 bg-slate-800/80 z-10 p-1.5 rounded-r-md text-slate-400 hover:text-white"
-          title={isExplorerOpen ? "Hide Explorer" : "Show Explorer"}
-        >
-          {isExplorerOpen ? <FiChevronLeft /> : <FiChevronRight />}
-        </button>
+        {/* Sidebar toggle button - Always visible for opening */}
+        {!isExplorerOpen && (
+          <button
+            onClick={() => setIsExplorerOpen(true)}
+            className="absolute left-2 top-1/2 transform -translate-y-1/2 bg-slate-800/90 z-20 p-1.5 rounded-md text-slate-400 hover:text-white border border-slate-600 shadow-lg transition-all duration-200"
+            title="Show Explorer"
+          >
+            <FiChevronRight />
+          </button>
+        )}
 
-        {/* Add explorer sidebar */}
+        {/* Explorer sidebar */}
         <motion.div
           initial={{ width: isExplorerOpen ? 250 : 0 }}
           animate={{ width: isExplorerOpen ? 250 : 0 }}
           transition={{ duration: 0.2 }}
-          className="h-full bg-slate-900/90 border-r border-slate-700/50 overflow-hidden"
+          className="h-full bg-slate-900/90 border-r border-slate-700/50 overflow-hidden flex-shrink-0"
         >
           {isExplorerOpen && (
-            <div className="flex flex-col h-full">
+            <div className="flex flex-col h-full w-[250px]">
+              {/* Sidebar header with close button */}
               <div className="flex-none p-2 border-b border-slate-700/50">
                 <div className="flex items-center justify-between">
                   {currentFolder ? (
@@ -1120,8 +1159,19 @@ export default function DocumentEditor() {
                       Files
                     </span>
                   )}
+
+                  {/* Close button */}
+                  <button
+                    onClick={() => setIsExplorerOpen(false)}
+                    className="p-1 rounded text-slate-400 hover:text-white hover:bg-slate-700 transition-colors"
+                    title="Hide Explorer"
+                  >
+                    <FiX size={14} />
+                  </button>
                 </div>
               </div>
+
+              {/* File explorer content */}
               <div className="flex-1 overflow-hidden">
                 <FileExplorer
                   onFileSelect={handleFileSelect}
@@ -1131,16 +1181,17 @@ export default function DocumentEditor() {
                   }
                   showAllFiles={currentFolder ? showAllFiles : false}
                   className="h-full"
-                  filterGlobalOnly={!currentFolder} // Show only global files when document is global
-                  filesOnly={!currentFolder} // Show only files when document is global
-                  showFolderOptions={true} // Enable folder options
+                  filterGlobalOnly={!currentFolder}
+                  filesOnly={!currentFolder}
+                  showFolderOptions={true}
                 />
               </div>
             </div>
           )}
         </motion.div>
 
-        <div className="flex-1 relative bg-white">
+        {/* Main editor content */}
+        <div className="flex-1 relative bg-white min-w-0">
           <Editor
             height="100%"
             width="100%"
@@ -1170,6 +1221,7 @@ export default function DocumentEditor() {
             currentuser={currentuser}
             onClose={() => setIsCollaboratorsOpen(false)}
             onInviteClick={handleShareDocument}
+            position="full-height" // Add this prop for DocumentEditor
           />
         )}
 

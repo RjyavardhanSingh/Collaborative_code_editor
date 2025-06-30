@@ -11,8 +11,9 @@ import {
   getFolderCollaborators,
   getFolderMessages,
   createFolderMessage,
-  getFolderDocuments, // Add this import
-  getFolderDocument, // Add this import
+  getFolderDocuments, 
+  getFolderDocument, 
+  updateCollaboratorPermission
 } from "../controllers/folder.controller.js";
 
 const router = express.Router();
@@ -29,5 +30,6 @@ router.get("/:id/messages", protect, getFolderMessages);
 router.post("/:id/messages", protect, createFolderMessage);
 router.get("/:id/documents", protect, getFolderDocuments); // Add this route
 router.get("/:id/documents/:documentId", protect, getFolderDocument); // Add this route to your folder routes
-
+// Add this route to folder.routes.js
+router.put('/:id/collaborators/:collaboratorId', protect, updateCollaboratorPermission);
 export default router;

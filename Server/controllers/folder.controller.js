@@ -540,13 +540,82 @@ export const getFolderDocument = async (req, res) => {
     // Verify document belongs to this folder
     const documentFolderId = document.folder?.toString();
     if (documentFolderId !== id) {
-      return res.status(404).json({ message: "Document not found in this folder" });
+      return res
+        .status(404)
+        .json({ message: "Document not found in this folder" });
     }
 
     // Return the document
     res.json(document);
   } catch (error) {
     console.error("Error fetching folder document:", error);
+    res.status(500).json({ message: error.message });
+  }
+};
+
+// Add this new controller function to folder.controller.js
+export const updateCollaboratorPermission = async (req, res) => {
+  try {
+    const { id, collaboratorId } = req.params;
+    const { permission } = req.body;
+
+    if (!["read", "write", "admin"].includes(permission)) {
+      return res.status(400).json({ message: "Invalid permission level" });
+    }
+
+    const folder = await Folder.findById(id);
+    if (!folder) {
+      return res.status(404).json({ message: "Folder not found" });
+    }
+
+    // Check if user has permission to modify collaborators
+    const isOwner = folder.owner.toString() === req.user._id.toString();
+    const userCollaborator = folder.collaborators.find(
+      (c) => c.user.toString() === req.user._id.toString()
+    );
+    const hasAdminRights =
+      isOwner || (userCollaborator && userCollaborator.permission === "admin");
+
+    if (!hasAdminRights) {
+      return res.status(403).json({
+        message: "Only the owner or admin can modify collaborator permissions",
+      });
+    }
+
+    // Find and update the collaborator
+    const collaborator = folder.collaborators.find(
+      (c) => c.user.toString() === collaboratorId
+    );
+
+    if (!collaborator) {
+      return res.status(404).json({ message: "Collaborator not found" });
+    }
+
+    // Update permission
+    collaborator.permission = permission;
+    await folder.save();
+
+    // Also update permission for all documents in this folder
+    const folderDocuments = await Document.find({ folder: folder._id });
+    for (const doc of folderDocuments) {
+      const docCollaborator = doc.collaborators.find(
+        (c) => c.user.toString() === collaboratorId
+      );
+      if (docCollaborator) {
+        docCollaborator.permission = permission;
+        await doc.save();
+      }
+    }
+
+    res.json({
+      message: "Collaborator permission updated successfully",
+      collaborator: {
+        user: collaborator.user,
+        permission: collaborator.permission,
+      },
+    });
+  } catch (error) {
+    console.error("Error updating collaborator permission:", error);
     res.status(500).json({ message: error.message });
   }
 };

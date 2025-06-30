@@ -10,10 +10,12 @@ export class MonacoShareDBBinding {
     this.isUpdatingMonaco = false;
     this.isDestroyed = false;
 
-    // Initialize with current content
-    this.syncInitialContent();
+    // Enhanced cursor preservation with local cursor tracking
+    this.preservedCursors = new Map();
+    this.isRestoringCursors = false;
+    this.localCursorPosition = null; // Track local cursor separately
 
-    // Initialize listeners
+    this.syncInitialContent();
     this.initListeners();
   }
 
@@ -43,6 +45,120 @@ export class MonacoShareDBBinding {
     }
   }
 
+  // Enhanced method to save ONLY remote cursor decorations (not local cursor)
+  saveAllCursors() {
+    if (this.isRestoringCursors) return new Map();
+
+    const cursors = new Map();
+
+    // CRITICAL: Save local cursor position separately
+    const localPosition = this.editor.getPosition();
+    const localSelection = this.editor.getSelection();
+
+    if (localPosition && localSelection) {
+      this.localCursorPosition = {
+        position: localPosition,
+        selection: localSelection,
+        timestamp: Date.now(),
+      };
+      console.log(
+        `💾 Saved local cursor at line ${localPosition.lineNumber}, column ${localPosition.column}`
+      );
+    }
+
+    // Get all current decorations
+    const decorations = this.model.getAllDecorations();
+
+    decorations.forEach((decoration) => {
+      // Look for remote cursor decorations only (not local user)
+      if (
+        decoration.options.className &&
+        decoration.options.className.includes("remote-cursor-") &&
+        !decoration.options.className.includes("local-cursor") // Exclude local cursor decorations
+      ) {
+        const classMatch =
+          decoration.options.className.match(/remote-cursor-(\w+)/);
+        if (classMatch) {
+          const userId = classMatch[1];
+          cursors.set(userId, {
+            range: decoration.range,
+            options: decoration.options,
+            id: decoration.id,
+          });
+        }
+      }
+    });
+
+    this.preservedCursors = cursors;
+    console.log(
+      `💾 Saved ${cursors.size} remote cursors (excluding local cursor)`
+    );
+    return cursors;
+  }
+
+  // Enhanced method to restore cursors after content update
+  restoreAllCursors(cursors = null) {
+    const cursorsToRestore = cursors || this.preservedCursors;
+
+    if (cursorsToRestore.size === 0 && !this.localCursorPosition) return;
+
+    // Set restoration flag to prevent conflicts
+    this.isRestoringCursors = true;
+
+    console.log(
+      `🔄 Restoring ${cursorsToRestore.size} remote cursors + local cursor`
+    );
+
+    // CRITICAL: Restore local cursor position first
+    if (this.localCursorPosition) {
+      try {
+        console.log(
+          `🔄 Restoring local cursor to line ${this.localCursorPosition.position.lineNumber}`
+        );
+
+        // Restore cursor position
+        this.editor.setPosition(this.localCursorPosition.position);
+
+        // Restore selection if it was a selection
+        if (
+          this.localCursorPosition.selection &&
+          !this.localCursorPosition.selection.isEmpty()
+        ) {
+          this.editor.setSelection(this.localCursorPosition.selection);
+        }
+
+        console.log(`✅ Local cursor restored successfully`);
+      } catch (err) {
+        console.error("❌ Failed to restore local cursor:", err);
+      }
+    }
+
+    // Dispatch event for remote cursors only
+    if (cursorsToRestore.size > 0) {
+      const event = new CustomEvent("restore-remote-cursors", {
+        detail: {
+          cursors: Array.from(cursorsToRestore.entries()).map(
+            ([userId, cursorData]) => ({
+              userId,
+              range: cursorData.range,
+              options: cursorData.options,
+            })
+          ),
+          timestamp: Date.now(),
+        },
+      });
+
+      document.dispatchEvent(event);
+    }
+
+    // Reset flag after a short delay
+    setTimeout(() => {
+      this.isRestoringCursors = false;
+      this.localCursorPosition = null; // Clear saved position
+      console.log("✅ Cursor restoration completed");
+    }, 100);
+  }
+
   initListeners() {
     // Listen for changes in Monaco editor
     this.modelChangeDisposable = this.model.onDidChangeContent((event) => {
@@ -51,7 +167,6 @@ export class MonacoShareDBBinding {
       this.isUpdatingShareDB = true;
 
       try {
-        // Get the full content and update ShareDB
         const content = this.model.getValue();
 
         console.log("📤 Monaco -> ShareDB:", {
@@ -62,7 +177,6 @@ export class MonacoShareDBBinding {
           ),
         });
 
-        // Update content field in the ShareDB document
         this.shareDBDoc.submitOp(
           [{ p: ["content"], od: this.shareDBDoc.data?.content, oi: content }],
           { source: "monaco" }
@@ -74,18 +188,14 @@ export class MonacoShareDBBinding {
       }
     });
 
-    // Listen for changes in ShareDB document
+    // Enhanced ShareDB listener with improved cursor preservation
     this.opHandler = (op, source) => {
       if (this.isUpdatingShareDB || this.isDestroyed || source === "monaco")
         return;
 
       try {
-        console.log("📥 ShareDB -> Monaco:", {
-          op: op?.length,
-          source,
-        });
+        console.log("📥 ShareDB -> Monaco:", { op: op?.length, source });
 
-        // Update Monaco editor with the new content
         if (
           this.shareDBDoc.data &&
           typeof this.shareDBDoc.data.content === "string"
@@ -96,94 +206,53 @@ export class MonacoShareDBBinding {
           if (content !== editorContent) {
             this.isUpdatingMonaco = true;
 
-            // IMPORTANT: Save all cursors and selections before updating content
-            const cursors = this.saveAllCursors();
+            // CRITICAL: Save cursors with proper local/remote distinction
+            const savedCursors = this.saveAllCursors();
+            console.log(
+              `💾 Content update from ${source}, saved ${savedCursors.size} remote cursors + local position`
+            );
 
-            // Use Monaco's edit API to update the content
+            // Update Monaco editor content
             this.editor.executeEdits("sharedb", [
               {
                 range: this.model.getFullModelRange(),
                 text: content,
-                forceMoveMarkers: true, // Try to preserve markers
+                forceMoveMarkers: true,
               },
             ]);
 
-            // IMPORTANT: Restore all cursors after updating content
-            this.restoreAllCursors(cursors);
+            // CRITICAL: Restore cursors with proper timing
+            setTimeout(() => {
+              console.log("🔄 Restoring cursors after content update");
+              this.restoreAllCursors(savedCursors);
+            }, 50);
 
             this.isUpdatingMonaco = false;
           }
         }
       } catch (err) {
         console.error("Error updating Monaco from ShareDB:", err);
+        this.isUpdatingMonaco = false;
       }
     };
 
     this.shareDBDoc.on("op", this.opHandler);
   }
 
-  // New method to save cursor positions
-  saveAllCursors() {
-    // Find all cursor decorations (we need to look in the DOM)
-    const cursors = [];
-    const cursorElements = document.querySelectorAll(
-      '[class^="remote-cursor-"]'
-    );
-
-    cursorElements.forEach((element) => {
-      // Extract user ID from class name
-      const classNames = Array.from(element.classList);
-      const cursorClass = classNames.find((c) =>
-        c.startsWith("remote-cursor-")
-      );
-
-      if (cursorClass) {
-        const userId = cursorClass.replace("remote-cursor-", "");
-
-        // Find line and column from the element's position
-        // This is a bit hacky but works
-        const lineElement = element.closest(".view-line");
-        if (lineElement) {
-          // Get line number and selection from data attributes
-          const lineNumber = parseInt(
-            lineElement.getAttribute("data-line-number") || "0"
-          );
-
-          cursors.push({
-            userId,
-            lineNumber,
-            // We can't easily get the exact column, so we'll just preserve the line
-          });
-        }
-      }
-    });
-
-    return cursors;
-  }
-
-  // New method to restore cursor positions
-  restoreAllCursors(cursors) {
-    // We can't directly restore cursors here
-    // Instead, we'll dispatch a custom event that the cursor tracking system can listen for
-    if (cursors.length > 0) {
-      const event = new CustomEvent("restore-remote-cursors", {
-        detail: { cursors },
-      });
-      document.dispatchEvent(event);
-    }
-  }
-
   destroy() {
     this.isDestroyed = true;
 
-    // Remove listeners
     if (this.modelChangeDisposable) {
       this.modelChangeDisposable.dispose();
     }
 
-    // Remove ShareDB listeners
     if (this.shareDBDoc) {
       this.shareDBDoc.removeListener("op", this.opHandler);
     }
+
+    // Clear preserved cursors and local position
+    this.preservedCursors.clear();
+    this.localCursorPosition = null;
+    this.isRestoringCursors = false;
   }
 }

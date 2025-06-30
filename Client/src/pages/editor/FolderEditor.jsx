@@ -378,13 +378,80 @@ export default function FolderEditor() {
 
     console.log("Setting up cursor tracking for folder document");
 
-    // Connect to cursor tracking server
     const cursorServerUrl =
       import.meta.env.VITE_CURSOR_URL || "ws://localhost:8081";
     const cursorSocket = new WebSocket(`${cursorServerUrl}/cursors/${docId}`);
     cursorSocketRef.current = cursorSocket;
 
-    // Send initial user info
+    // Map to store cursor decorations by user ID
+    const userCursors = new Map();
+
+    // Enhanced cursor restoration handler
+    const cursorRestoreHandler = (event) => {
+      const { cursors, timestamp } = event.detail;
+
+      console.log(
+        `🔄 Restoring ${cursors.length} REMOTE cursors only (timestamp: ${timestamp})`
+      );
+
+      cursors.forEach((cursorData) => {
+        const { userId, range, options } = cursorData;
+
+        // IMPORTANT: Skip if this is somehow our own user ID
+        if (userId === currentuser._id) {
+          console.warn(`⚠️ Skipping restoration for own user: ${userId}`);
+          return;
+        }
+
+        // Get stored user info
+        const userInfo = userCursors.get(userId);
+        if (userInfo) {
+          console.log(`🔄 Restoring REMOTE cursor for ${userInfo.username}`);
+
+          // Remove existing decorations first to prevent duplicates
+          if (userInfo.decorations && userInfo.decorations.length > 0) {
+            editor.deltaDecorations(userInfo.decorations, []);
+          }
+
+          // Re-apply the cursor decoration
+          const newDecorations = editor.deltaDecorations(
+            [], // Always start with empty array to prevent conflicts
+            [
+              {
+                range: range,
+                options: {
+                  ...options,
+                  // Ensure we keep the original styling
+                  className: `remote-cursor-${userId}`,
+                  beforeContentClassName: `remote-cursor-before-${userId}`,
+                  hoverMessage: { value: userInfo.username },
+                  zIndex: 1000,
+                },
+              },
+            ]
+          );
+
+          // Update stored decorations
+          userCursors.set(userId, {
+            ...userInfo,
+            decorations: newDecorations,
+            lastRestored: timestamp,
+          });
+
+          console.log(
+            `✅ Restored REMOTE cursor for ${userInfo.username} with ${newDecorations.length} decorations`
+          );
+        } else {
+          console.warn(
+            `⚠️ No user info found for cursor restoration: ${userId}`
+          );
+        }
+      });
+    };
+
+    // Add event listener for cursor restoration
+    document.addEventListener("restore-remote-cursors", cursorRestoreHandler);
+
     cursorSocket.onopen = () => {
       console.log("🔗 Cursor WebSocket connected");
       const connectMessage = {
@@ -395,11 +462,9 @@ export default function FolderEditor() {
           avatar: currentuser.avatar,
         },
       };
-      console.log("Sending connect message:", connectMessage);
       cursorSocket.send(JSON.stringify(connectMessage));
     };
 
-    // Handle connection errors
     cursorSocket.onerror = (error) => {
       console.error("❌ Cursor WebSocket error:", error);
     };
@@ -408,10 +473,6 @@ export default function FolderEditor() {
       console.log("🔌 Cursor WebSocket closed:", event.code, event.reason);
     };
 
-    // Map to store cursor decorations by user ID
-    const userCursors = new Map();
-
-    // Update cursor position on changes
     const sendCursorPosition = () => {
       const position = editor.getPosition();
       const selection = editor.getSelection();
@@ -438,18 +499,15 @@ export default function FolderEditor() {
         },
       };
 
-      console.log("Sending cursor position:", cursorMessage);
       cursorSocket.send(JSON.stringify(cursorMessage));
     };
 
-    // Debounce the update function
     let cursorTimeout = null;
     const updateCursorDebounced = () => {
       if (cursorTimeout) clearTimeout(cursorTimeout);
       cursorTimeout = setTimeout(sendCursorPosition, 100);
     };
 
-    // Listen for cursor events
     const cursorDisposable = editor.onDidChangeCursorPosition(
       updateCursorDebounced
     );
@@ -457,19 +515,15 @@ export default function FolderEditor() {
       updateCursorDebounced
     );
 
-    // FIXED: Handle incoming cursor positions with better error handling
+    // Enhanced message handler with better cursor management
     cursorSocket.onmessage = (event) => {
       try {
-        console.log("Raw cursor message received:", event.data);
-
-        // Check if it's valid JSON
         if (!event.data || typeof event.data !== "string") {
           console.warn("Invalid message format:", event.data);
           return;
         }
 
         const data = JSON.parse(event.data);
-        console.log("📍 Parsed cursor data:", data);
 
         if (data.type === "cursor" && data.userId !== currentuser._id) {
           const userId = data.userId;
@@ -481,15 +535,17 @@ export default function FolderEditor() {
             `👁️ Updating cursor for ${username} at line ${position.lineNumber}`
           );
 
-          // Remove previous cursor for this user if it exists
-          const oldDecorations = userCursors.get(userId);
-          if (oldDecorations) {
-            editor.deltaDecorations(oldDecorations, []);
+          // Remove previous cursor decorations for this user
+          const existingUserData = userCursors.get(userId);
+          let oldDecorations = [];
+
+          if (existingUserData && existingUserData.decorations) {
+            oldDecorations = existingUserData.decorations;
           }
 
-          // Add cursor decoration
+          // Create new cursor decoration (replace old ones atomically)
           const decorations = editor.deltaDecorations(
-            [],
+            oldDecorations, // Remove old decorations
             [
               {
                 range: {
@@ -508,9 +564,16 @@ export default function FolderEditor() {
             ]
           );
 
-          userCursors.set(userId, decorations);
+          // Store complete user cursor data
+          userCursors.set(userId, {
+            decorations,
+            username,
+            color,
+            position,
+            lastUpdate: Date.now(),
+          });
 
-          // Add CSS for this cursor
+          // Update CSS for this cursor (only if not already exists)
           const styleId = `cursor-style-${userId}`;
           let styleEl = document.getElementById(styleId);
 
@@ -518,34 +581,51 @@ export default function FolderEditor() {
             styleEl = document.createElement("style");
             styleEl.id = styleId;
             document.head.appendChild(styleEl);
-          }
 
-          styleEl.textContent = `
-            .remote-cursor-before-${userId} {
-              position: relative;
+            styleEl.textContent = `
+              .remote-cursor-before-${userId} {
+                position: relative;
+              }
+              .remote-cursor-before-${userId}::before {
+                content: "";
+                position: absolute;
+                height: 18px;
+                width: 2px;
+                background-color: ${color};
+                z-index: 1000;
+              }
+              .remote-cursor-before-${userId}::after {
+                content: "${username}";
+                position: absolute;
+                top: -18px;
+                left: 0;
+                background: ${color};
+                color: white;
+                padding: 0 4px;
+                font-size: 12px;
+                border-radius: 2px;
+                white-space: nowrap;
+                z-index: 1000;
+              }
+            `;
+          }
+        }
+
+        // Handle cursor disconnect
+        if (data.type === "cursor-disconnect") {
+          const userId = data.userId;
+          const userData = userCursors.get(userId);
+
+          if (userData && userData.decorations) {
+            editor.deltaDecorations(userData.decorations, []);
+            userCursors.delete(userId);
+
+            // Remove CSS
+            const styleEl = document.getElementById(`cursor-style-${userId}`);
+            if (styleEl) {
+              styleEl.remove();
             }
-            .remote-cursor-before-${userId}::before {
-              content: "";
-              position: absolute;
-              height: 18px;
-              width: 2px;
-              background-color: ${color};
-              z-index: 1000;
-            }
-            .remote-cursor-before-${userId}::after {
-              content: "${username}";
-              position: absolute;
-              top: -18px;
-              left: 0;
-              background: ${color};
-              color: white;
-              padding: 0 4px;
-              font-size: 12px;
-              border-radius: 2px;
-              white-space: nowrap;
-              z-index: 1000;
-            }
-          `;
+          }
         }
       } catch (err) {
         console.error("❌ Cursor tracking error:", err);
@@ -553,26 +633,43 @@ export default function FolderEditor() {
       }
     };
 
-    // Send initial position after a delay
+    // Send initial position
     setTimeout(() => {
       console.log("📍 Sending initial cursor position");
       sendCursorPosition();
-    }, 1000); // Increased delay to ensure connection is stable
+    }, 1000);
 
     // Return cleanup function
     return () => {
       console.log("🧹 Cleaning up cursor tracking");
+
+      // Remove event listener
+      document.removeEventListener(
+        "restore-remote-cursors",
+        cursorRestoreHandler
+      );
+
       cursorDisposable.dispose();
       selectionDisposable.dispose();
+
       if (cursorTimeout) clearTimeout(cursorTimeout);
+
       if (cursorSocket && cursorSocket.readyState === WebSocket.OPEN) {
         cursorSocket.close();
       }
 
-      // Clean up cursor styles
-      document
-        .querySelectorAll(`[id^="cursor-style-"]`)
-        .forEach((el) => el.remove());
+      // Clean up all cursor decorations and styles
+      userCursors.forEach((userData, userId) => {
+        if (userData.decorations) {
+          editor.deltaDecorations(userData.decorations, []);
+        }
+        const styleEl = document.getElementById(`cursor-style-${userId}`);
+        if (styleEl) {
+          styleEl.remove();
+        }
+      });
+
+      userCursors.clear();
     };
   };
 
@@ -1112,36 +1209,49 @@ export default function FolderEditor() {
       />
 
       <div className="flex flex-1 relative" id="editor-container">
-        {/* Sidebar toggle button */}
-        <button
-          onClick={() => setIsExplorerOpen(!isExplorerOpen)}
-          className="absolute left-0 top-1/2 transform -translate-y-1/2 bg-slate-800/80 z-10 p-1.5 rounded-r-md text-slate-400 hover:text-white"
-          title={isExplorerOpen ? "Hide Explorer" : "Show Explorer"}
-        >
-          {isExplorerOpen ? <FiChevronLeft /> : <FiChevronRight />}
-        </button>
+        {/* Sidebar toggle button - Only show when sidebar is closed */}
+        {!isExplorerOpen && (
+          <button
+            onClick={() => setIsExplorerOpen(true)}
+            className="absolute left-2 top-1/2 transform -translate-y-1/2 bg-slate-800/90 z-20 p-1.5 rounded-md text-slate-400 hover:text-white border border-slate-600 shadow-lg transition-all duration-200"
+            title="Show Explorer"
+          >
+            <FiChevronRight />
+          </button>
+        )}
 
         {/* Explorer sidebar */}
         <motion.div
           initial={{ width: isExplorerOpen ? 250 : 0 }}
           animate={{ width: isExplorerOpen ? 250 : 0 }}
           transition={{ duration: 0.2 }}
-          className="h-full bg-slate-900/90 border-r border-slate-700/50 overflow-hidden"
+          className="h-full bg-slate-900/90 border-r border-slate-700/50 overflow-hidden flex-shrink-0"
         >
           {isExplorerOpen && (
-            <div className="flex flex-col h-full">
+            <div className="flex flex-col h-full w-[250px]">
+              {/* Sidebar header with close button */}
               <div className="flex-none p-2 border-b border-slate-700/50">
                 <div className="flex items-center justify-between">
                   <h3 className="text-white font-medium truncate">
                     {folder?.name || "Project"}
                   </h3>
+
+                  {/* Close button */}
+                  <button
+                    onClick={() => setIsExplorerOpen(false)}
+                    className="p-1 rounded text-slate-400 hover:text-white hover:bg-slate-700 transition-colors"
+                    title="Hide Explorer"
+                  >
+                    <FiX size={14} />
+                  </button>
                 </div>
               </div>
+
+              {/* File explorer content */}
               <div className="flex-1 overflow-hidden">
                 <FileExplorer
                   onFileSelect={handleFileSelect}
                   onFolderSelect={(folder) => {
-                    // Navigate to the folder but stay in folder editor view
                     navigate(`/folders/${folder._id}`);
                   }}
                   className="h-full overflow-y-auto"
@@ -1155,7 +1265,7 @@ export default function FolderEditor() {
         </motion.div>
 
         {/* Main content area */}
-        <div className="flex-1 bg-slate-900">
+        <div className="flex-1 bg-slate-900 min-w-0">
           {loading ? (
             <div className="flex items-center justify-center h-full">
               <div className="animate-spin w-8 h-8 border-2 border-blue-500 border-t-transparent rounded-full"></div>

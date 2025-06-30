@@ -13,14 +13,35 @@ export default function CollaboratorManagement({
   onInviteClick,
   isFolder = false,
   activeDocuments = {},
+  position = "default", // Add this new prop
+  className, // Accept className prop
 }) {
   const [editingId, setEditingId] = useState(null);
   const [editPermission, setEditPermission] = useState("");
   const [error, setError] = useState(null);
 
-  const apiPath = isFolder
-    ? `/api/folders/${documentId}/collaborators/`
-    : `/api/documents/${documentId}/collaborators/`;
+  // FIXED: Better API path handling
+  const getApiPath = (action, collaboratorId = "") => {
+    if (isFolder) {
+      switch (action) {
+        case "remove":
+          return `/api/folders/${documentId}/collaborators/${collaboratorId}`;
+        case "update":
+          return `/api/folders/${documentId}/collaborators/${collaboratorId}`;
+        default:
+          return `/api/folders/${documentId}/collaborators/`;
+      }
+    } else {
+      switch (action) {
+        case "remove":
+          return `/api/documents/${documentId}/collaborators/${collaboratorId}`;
+        case "update":
+          return `/api/documents/${documentId}`;
+        default:
+          return `/api/documents/${documentId}/collaborators/`;
+      }
+    }
+  };
 
   const getRandomColor = (userId) => {
     const colors = [
@@ -62,16 +83,28 @@ export default function CollaboratorManagement({
         c.user._id === collaboratorId ? { ...c, permission: newPermission } : c
       );
 
-      const document = {
-        collaborators: updatedCollaborators
-          .filter((c) => !c.isOwner)
-          .map((c) => ({
-            user: c.user._id,
-            permission: c.permission,
-          })),
-      };
+      // FIXED: Use different API calls for folders vs documents
+      if (isFolder) {
+        // For folders, use the folder collaborator API
+        await api.put(
+          `/api/folders/${documentId}/collaborators/${collaboratorId}`,
+          {
+            permission: newPermission,
+          }
+        );
+      } else {
+        // For documents, use the document API
+        const document = {
+          collaborators: updatedCollaborators
+            .filter((c) => !c.isOwner)
+            .map((c) => ({
+              user: c.user._id,
+              permission: c.permission,
+            })),
+        };
 
-      await api.put(`/api/documents/${documentId}`, document);
+        await api.put(`/api/documents/${documentId}`, document);
+      }
 
       setCollaborators(updatedCollaborators);
       setEditingId(null);
@@ -84,7 +117,7 @@ export default function CollaboratorManagement({
   const handleRemoveCollaborator = async (collaboratorId) => {
     try {
       setError(null);
-      await api.delete(`${apiPath}${collaboratorId}`);
+      await api.delete(getApiPath("remove", collaboratorId));
       setCollaborators((prev) =>
         prev.filter((c) => c.user._id !== collaboratorId)
       );
@@ -121,12 +154,27 @@ export default function CollaboratorManagement({
     );
   };
 
+  const getPositionClasses = () => {
+    if (position === "navbar-aware") {
+      // For FolderEditor with navbar
+      return "absolute top-16 right-0 h-[calc(100%-4rem)] w-[350px]";
+    } else if (position === "full-height") {
+      // For DocumentEditor container
+      return "absolute top-0 right-0 h-full w-[350px]";
+    } else {
+      // Default behavior based on isFolder
+      return `absolute ${
+        isFolder ? "top-16 h-[calc(100%-4rem)]" : "top-0 h-full"
+      } right-0 w-[350px]`;
+    }
+  };
+
   return (
     <motion.div
       initial={{ x: 300, opacity: 0 }}
       animate={{ x: 0, opacity: 1 }}
       exit={{ x: 300, opacity: 0 }}
-      className="absolute top-16 right-0 h-[calc(100%-4rem)] w-[350px] border-l border-slate-700 bg-slate-800 overflow-y-auto shadow-xl z-10"
+      className={`${getPositionClasses()} border-l border-slate-700 bg-slate-800 overflow-y-auto shadow-xl z-10`}
     >
       <div className="p-4">
         <div className="flex items-center justify-between mb-4">
