@@ -38,6 +38,7 @@ export default function InitRepositoryModal({
 
       console.log(`Initializing repository for folder: ${folderId}`);
 
+      // Make sure to include the token in the Authorization header
       const response = await api.post(
         `/api/github/init/${folderId}`,
         {
@@ -60,10 +61,14 @@ export default function InitRepositoryModal({
     } catch (err) {
       console.error("Repository initialization error:", err);
 
-      if (err.response?.data?.message) {
-        setError(err.response.data.message);
+      if (err.response?.status === 404) {
+        setError(
+          "Initialization endpoint not found. Please check server configuration."
+        );
       } else {
-        setError("Failed to initialize repository. Please try again.");
+        setError(
+          err.response?.data?.message || "Failed to initialize repository"
+        );
       }
     } finally {
       setLoading(false);

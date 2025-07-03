@@ -1,16 +1,16 @@
+import fs from "fs/promises";
+import path from "path";
+import simpleGit from "simple-git";
+import Folder from "../models/folder.model.js";
+import Document from "../models/document.model.js";
+import { fileURLToPath } from "url";
+import { dirname } from "path";
 import {
   authenticateWithGitHub,
   createRepository,
   getRepositories,
   getRepository,
 } from "../services/github.service.js";
-import Folder from "../models/folder.model.js";
-import Document from "../models/document.model.js";
-import simpleGit from "simple-git";
-import path from "path";
-import fs from "fs/promises";
-import { fileURLToPath } from "url";
-import { dirname } from "path";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
