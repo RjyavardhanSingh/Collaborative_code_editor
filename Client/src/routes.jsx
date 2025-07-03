@@ -15,6 +15,7 @@ const SharedDocuments = lazy(() =>
 );
 const FolderEditor = lazy(() => import("./pages/editor/FolderEditor.jsx"));
 const Projects = lazy(() => import("./pages/projects/Projects.jsx"));
+const GitHubCallback = lazy(() => import("./pages/git/GitHubCallback.jsx"));
 
 const LoadingFallback = () => (
   <div className="flex items-center justify-center h-screen w-screen">
@@ -121,6 +122,14 @@ export const routes = [
         ),
       },
     ],
+  },
+  {
+    path: "/github/callback",
+    element: (
+      <Suspense fallback={<LoadingFallback />}>
+        <GitHubCallback />
+      </Suspense>
+    ),
   },
   {
     path: "*",

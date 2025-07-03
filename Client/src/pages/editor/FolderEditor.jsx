@@ -18,6 +18,7 @@ import {
   FiMaximize,
   FiMinimize,
   FiX,
+  FiGitBranch,
 } from "react-icons/fi";
 import logo from "../../assets/logo.png";
 import { FiMessageSquare } from "react-icons/fi";
@@ -25,6 +26,10 @@ import CollaboratorManagement from "../../components/collaboration/CollaboratorM
 import { io } from "socket.io-client";
 import { Connection } from "sharedb/lib/client";
 import { MonacoShareDBBinding } from "../../lib/MonacoShareDBBinding";
+import GitHubPanel from "../../components/github/GitHubPanel";
+import CreateRepositoryModal from "../../components/github/CreateRepositoryModal";
+import InitRepositoryModal from "../../components/github/InitRepositoryModal";
+import { isGitHubAuthenticated } from "../../lib/githubAuth";
 
 export default function FolderEditor() {
   const { id } = useParams();
@@ -36,6 +41,10 @@ export default function FolderEditor() {
   const [error, setError] = useState(null);
   const [isExplorerOpen, setIsExplorerOpen] = useState(true);
   const [isCollaboratorsOpen, setIsCollaboratorsOpen] = useState(false);
+  const [isGitHubPanelOpen, setIsGitHubPanelOpen] = useState(false);
+  const [isCreateRepoModalOpen, setIsCreateRepoModalOpen] = useState(false);
+  const [isInitRepoModalOpen, setIsInitRepoModalOpen] = useState(false);
+  const [gitHubConnected, setGitHubConnected] = useState(false);
 
   // Add these missing refs for collaborative editing
   const editorRef = useRef(null); // Add this line
@@ -152,6 +161,7 @@ export default function FolderEditor() {
       });
   };
 
+  // Update your handleSaveDocument function
   const handleSaveDocument = async () => {
     if (!selectedFile || !editorRef.current) return;
 
@@ -165,7 +175,40 @@ export default function FolderEditor() {
 
       // Update the local state
       setFileContent(content);
-      setLastSaved(Date.now()); // Update last saved time
+      setLastSaved(Date.now());
+
+      // Auto-sync with Git if folder has Git repo
+      if (folder?.githubRepo) {
+        try {
+          console.log("🔄 Syncing saved file to Git repository");
+
+          // Force sync the file to Git
+          const syncResponse = await api.post(
+            `/api/github/sync/${folder._id}`,
+            {
+              files: [{ path: selectedFile.title, content }],
+            },
+            {
+              headers: {
+                Authorization: `Bearer ${localStorage.getItem("githubToken")}`,
+              },
+            }
+          );
+
+          console.log("✅ File synced to Git repository:", syncResponse.data);
+
+          // Refresh Git status after syncing
+          if (isGitHubPanelOpen) {
+            setTimeout(() => {
+              console.log("🔄 Refreshing Git status after file save");
+              // This will trigger a refetch through the GitHubPanel component
+              setIsGitHubPanelOpen(true);
+            }, 500);
+          }
+        } catch (err) {
+          console.error("Git sync error:", err);
+        }
+      }
     } catch (err) {
       console.error("Failed to save document:", err);
       alert("Failed to save document");
@@ -1053,6 +1096,19 @@ export default function FolderEditor() {
           </span>
         )}
       </button>
+
+      {/* GitHub panel toggle */}
+      <button
+        onClick={() => setIsGitHubPanelOpen(!isGitHubPanelOpen)}
+        className={`p-2 rounded ${
+          isGitHubPanelOpen
+            ? "bg-blue-600 text-white"
+            : "text-slate-400 hover:text-white hover:bg-slate-700"
+        }`}
+        title="Git Version Control"
+      >
+        <FiGitBranch />
+      </button>
     </>
   );
 
@@ -1071,6 +1127,45 @@ export default function FolderEditor() {
       collaborator?.permission === "write" ||
       collaborator?.permission === "admin"
     );
+  };
+
+  // Add an effect to check GitHub connection status
+  useEffect(() => {
+    setGitHubConnected(isGitHubAuthenticated());
+  }, []);
+
+  // Add this function to handle repository creation success
+  const handleRepoCreationSuccess = (repoData) => {
+    setIsCreateRepoModalOpen(false);
+    setGitHubConnected(true);
+    // Refresh folder data to get updated GitHub repo info
+    const fetchFolderData = async () => {
+      try {
+        const { data } = await api.get(`/api/folders/${id}`);
+        setFolder(data);
+      } catch (err) {
+        console.error("Failed to refresh folder data:", err);
+      }
+    };
+    fetchFolderData();
+  };
+
+  // Add this for handling initialization success
+  const handleRepoInitSuccess = (data) => {
+    setIsInitRepoModalOpen(false);
+
+    if (data.repository) {
+      setFolder((prev) => ({
+        ...prev,
+        githubRepo: {
+          ...prev.githubRepo,
+          isInitialized: true,
+        },
+      }));
+    }
+
+    // Refresh folder data to get updated GitHub repo info
+    fetchFolderData();
   };
 
   return (
@@ -1203,6 +1298,19 @@ export default function FolderEditor() {
                   {unreadMessageCount}
                 </span>
               )}
+            </button>
+
+            {/* GitHub panel toggle */}
+            <button
+              onClick={() => setIsGitHubPanelOpen(!isGitHubPanelOpen)}
+              className={`p-2 rounded ${
+                isGitHubPanelOpen
+                  ? "bg-blue-600 text-white"
+                  : "text-slate-400 hover:text-white hover:bg-slate-700"
+              }`}
+              title="Git Version Control"
+            >
+              <FiGitBranch />
             </button>
           </>
         }
@@ -1429,6 +1537,41 @@ export default function FolderEditor() {
             </div>
           </div>
         </motion.div>
+      )}
+
+      {/* GitHub panel - add this at the end of your return */}
+      {isGitHubPanelOpen && (
+        <GitHubPanel
+          folderId={folder?._id}
+          onClose={() => setIsGitHubPanelOpen(false)}
+          refreshFiles={() => {
+            // Add logic to refresh files after Git operations
+            if (selectedFile) {
+              fetchDocument(selectedFile._id);
+            }
+          }}
+          currentFiles={[selectedFile].filter(Boolean)}
+        />
+      )}
+
+      {/* Create repository modal - add this at the end of your return */}
+      {isCreateRepoModalOpen && (
+        <CreateRepositoryModal
+          folderId={folder?._id}
+          folderName={folder?.name}
+          onClose={() => setIsCreateRepoModalOpen(false)}
+          onSuccess={handleRepoCreationSuccess}
+        />
+      )}
+
+      {/* Repository initialization modal */}
+      {isInitRepoModalOpen && (
+        <InitRepositoryModal
+          folderId={folder?._id}
+          repositoryName={folder?.githubRepo?.name || folder?.name}
+          onClose={() => setIsInitRepoModalOpen(false)}
+          onSuccess={handleRepoInitSuccess}
+        />
       )}
     </div>
   );

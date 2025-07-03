@@ -336,6 +336,8 @@ export default function DocumentEditor() {
     let saveTimeout = null;
     let lastSavedContent = "";
 
+    // Update the autoSave function in initializeAutoSave
+
     const autoSave = () => {
       if (saveTimeout) clearTimeout(saveTimeout);
 
@@ -354,6 +356,36 @@ export default function DocumentEditor() {
           lastSavedContent = content;
           persistedContentRef.current = content;
           setLastSaved(new Date());
+
+          // Auto-sync with Git if file belongs to a folder with Git repo
+          if (doc?.folder) {
+            try {
+              const folderResponse = await api.get(
+                `/api/folders/${doc.folder}`
+              );
+              const folder = folderResponse.data;
+
+              if (folder.githubRepo) {
+                // Don't await - let it run in background
+                api.post(
+                  `/api/github/sync/${doc.folder}`,
+                  {
+                    files: [{ path: doc.title, content }],
+                  },
+                  {
+                    headers: {
+                      Authorization: `Bearer ${localStorage.getItem(
+                        "githubToken"
+                      )}`,
+                    },
+                  }
+                );
+              }
+            } catch (err) {
+              // Non-blocking
+              console.error("Git sync error (non-blocking):", err);
+            }
+          }
 
           console.log("✅ Auto-save completed");
         } catch (error) {
@@ -513,13 +545,13 @@ export default function DocumentEditor() {
     );
   };
 
+  // Modify the handleSave function to auto-sync with Git
   const handleSave = async () => {
-    if (!hasWritePermission()) return;
-
     try {
       setIsSaving(true);
       const content = editorRef.current.getValue();
 
+      // Save to database
       await api.put(`/api/documents/${id}`, { content, language });
       await api.post(`/api/documents/${id}/versions`, {
         content,
@@ -531,6 +563,33 @@ export default function DocumentEditor() {
 
       const versionsResponse = await api.get(`/api/documents/${id}/versions`);
       setVersions(versionsResponse.data);
+
+      // Auto-sync with Git if file belongs to a folder with Git repo
+      if (doc?.folder) {
+        try {
+          const folderResponse = await api.get(`/api/folders/${doc.folder}`);
+          const folder = folderResponse.data;
+
+          if (folder.githubRepo) {
+            // Add this silent sync - don't wait for it to complete
+            api.post(
+              `/api/github/sync/${doc.folder}`,
+              {
+                files: [{ path: doc.title, content }],
+              },
+              {
+                headers: {
+                  Authorization: `Bearer ${localStorage.getItem(
+                    "githubToken"
+                  )}`,
+                },
+              }
+            );
+          }
+        } catch (err) {
+          console.error("Git sync error (non-blocking):", err);
+        }
+      }
 
       setIsSaving(false);
     } catch (err) {

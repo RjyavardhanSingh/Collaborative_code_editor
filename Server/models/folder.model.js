@@ -37,6 +37,22 @@ const folderSchema = new mongoose.Schema(
         },
       },
     ],
+    githubRepo: {
+      name: String,
+      fullName: String,
+      url: String,
+      apiUrl: String,
+      owner: String,
+      defaultBranch: {
+        type: String,
+        default: "main",
+      },
+      lastSynced: Date,
+      isInitialized: {
+        type: Boolean,
+        default: false,
+      },
+    },
   },
   { timestamps: true }
 );

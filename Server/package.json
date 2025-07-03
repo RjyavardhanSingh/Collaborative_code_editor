@@ -22,6 +22,8 @@
   "license": "ISC",
   "description": "",
   "dependencies": {
+    "@octokit/rest": "^22.0.0",
+    "axios": "^1.10.0",
     "bcrypt": "^6.0.0",
     "cors": "^2.8.5",
     "dotenv": "^16.5.0",
@@ -33,6 +35,7 @@
     "multer": "^2.0.1",
     "sharedb": "^5.2.2",
     "sharedb-mongo": "^5.0.0",
+    "simple-git": "^3.28.0",
     "socket.io": "^4.8.1",
     "socket.io-client": "^4.8.1",
     "websocket-json-stream": "^0.0.3",

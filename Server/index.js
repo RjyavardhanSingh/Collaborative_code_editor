@@ -15,6 +15,7 @@ import { errorHandler } from "./middlewares/auth.js";
 import { setupSocketHandlers } from "./socket/socket.handler.js";
 import invitationRoutes from "./routers/invitation.route.js";
 import folderRoutes from "./routers/folder.route.js";
+import githubRoutes from "./routers/github.route.js";
 
 dotenv.config();
 
@@ -26,7 +27,7 @@ const io = new Server(httpServer, {
   cors: {
     origin: process.env.CLIENT_URL || "http://localhost:5173",
     methods: ["GET", "POST"],
-    credentials: true, 
+    credentials: true,
   },
 });
 app.use((req, res, next) => {
@@ -39,7 +40,7 @@ connectDb();
 app.use(
   cors({
     origin: process.env.CLIENT_URL || "http://localhost:5173",
-    credentials: true, 
+    credentials: true,
   })
 );
 
@@ -53,6 +54,7 @@ app.use("/api/search", searchRoutes);
 app.use("/api/analytics", analyticsRoutes);
 app.use("/api/invitations", invitationRoutes);
 app.use("/api/folders", folderRoutes);
+app.use("/api/github", githubRoutes);
 
 app.use(errorHandler);
 
