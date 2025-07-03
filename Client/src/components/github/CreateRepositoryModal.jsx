@@ -1,67 +1,69 @@
 import { useState } from "react";
 import { motion } from "framer-motion";
-import {
-  FiGitBranch,
-  FiX,
-  FiLock,
-  FiGlobe,
-  FiFileText,
-  FiCheck,
-} from "react-icons/fi";
+import { FiGitBranch, FiX, FiLock, FiGlobe, FiCheck } from "react-icons/fi";
 import api from "../../lib/api";
 
-export default function InitRepositoryModal({
+export default function CreateRepositoryModal({
   folderId,
-  repositoryName,
+  folderName,
   onClose,
   onSuccess,
 }) {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
+  const [name, setName] = useState(folderName || "");
+  const [description, setDescription] = useState("");
   const [isPrivate, setIsPrivate] = useState(false);
-  const [addReadme, setAddReadme] = useState(true);
-  const [branch, setBranch] = useState("main");
 
-  const handleInit = async (e) => {
+  const handleSubmit = async (e) => {
     e.preventDefault();
-    
+
     try {
       setLoading(true);
       setError(null);
-      
-      // Get GitHub token
+
+      if (!name.trim()) {
+        setError("Repository name is required");
+        setLoading(false);
+        return;
+      }
+
       const token = localStorage.getItem("githubToken");
       if (!token) {
         setError("GitHub authentication required");
         return;
       }
-      
-      console.log(`Initializing repository for folder: ${folderId}`);
-      
-      const response = await api.post(
-        `/api/github/init/${folderId}`,
+
+      console.log("Creating repository:", {
+        name,
+        description,
+        isPrivate,
+        folderId,
+      });
+
+      const { data } = await api.post(
+        "/api/github/repos",
         {
+          name,
+          description,
           isPrivate,
-          addReadme,
-          defaultBranch: branch
+          folderId,
         },
         {
           headers: {
-            Authorization: `Bearer ${token}`
-          }
+            Authorization: `Bearer ${token}`,
+          },
         }
       );
-      
-      console.log("Repository initialized successfully:", response.data);
-      
+
+      console.log("Repository created successfully:", data);
+
       if (onSuccess) {
-        onSuccess(response.data);
+        onSuccess(data.repository);
       }
     } catch (err) {
-      console.error("Repository initialization error:", err);
-      setError(
-        err.response?.data?.message || "Failed to initialize repository"
-      );
+      console.error("Repository creation error:", err);
+      setError(err.response?.data?.message || "Failed to create repository");
     } finally {
       setLoading(false);
     }
@@ -76,12 +78,9 @@ export default function InitRepositoryModal({
       >
         <div className="flex items-center justify-between mb-6">
           <h3 className="text-lg font-bold text-white flex items-center gap-2">
-            <FiGitBranch className="text-blue-400" /> Initialize Repository
+            <FiGitBranch className="text-blue-400" /> Create Repository
           </h3>
-          <button
-            onClick={onClose}
-            className="text-slate-400 hover:text-white"
-          >
+          <button onClick={onClose} className="text-slate-400 hover:text-white">
             <FiX />
           </button>
         </div>
@@ -92,13 +91,13 @@ export default function InitRepositoryModal({
           </div>
         )}
 
-        <form onSubmit={handleInit}>
+        <form onSubmit={handleSubmit}>
           <div className="mb-6">
             <p className="text-slate-300 mb-4">
-              You'll be initializing GitHub repository for: 
-              <span className="font-medium text-white ml-1">{repositoryName}</span>
+              You'll be creating a new GitHub repository for:
+              <span className="font-medium text-white ml-1">{folderName}</span>
             </p>
-            
+
             <div className="space-y-4">
               <div className="flex items-center">
                 <input
@@ -108,34 +107,37 @@ export default function InitRepositoryModal({
                   onChange={(e) => setIsPrivate(e.target.checked)}
                   className="mr-2 rounded bg-slate-700 border-slate-600 text-blue-500 focus:ring-blue-500"
                 />
-                <label htmlFor="isPrivate" className="flex items-center gap-1.5 text-slate-300">
-                  <FiLock className={isPrivate ? "text-blue-400" : "text-slate-400"} /> 
+                <label
+                  htmlFor="isPrivate"
+                  className="flex items-center gap-1.5 text-slate-300"
+                >
+                  <FiLock
+                    className={isPrivate ? "text-blue-400" : "text-slate-400"}
+                  />
                   Private repository
                 </label>
               </div>
-              
-              <div className="flex items-center">
-                <input
-                  type="checkbox"
-                  id="addReadme"
-                  checked={addReadme}
-                  onChange={(e) => setAddReadme(e.target.checked)}
-                  className="mr-2 rounded bg-slate-700 border-slate-600 text-blue-500 focus:ring-blue-500"
-                />
-                <label htmlFor="addReadme" className="flex items-center gap-1.5 text-slate-300">
-                  <FiFileText className={addReadme ? "text-blue-400" : "text-slate-400"} /> 
-                  Initialize with a README file
-                </label>
-              </div>
-              
+
               <div>
                 <label className="block text-sm font-medium text-slate-300 mb-1">
-                  Default Branch
+                  Repository Name
                 </label>
                 <input
                   type="text"
-                  value={branch}
-                  onChange={(e) => setBranch(e.target.value)}
+                  value={name}
+                  onChange={(e) => setName(e.target.value)}
+                  className="w-full bg-slate-700 border border-slate-600 rounded-md px-3 py-2 text-white focus:outline-none focus:ring-1 focus:ring-blue-500"
+                />
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium text-slate-300 mb-1">
+                  Description (optional)
+                </label>
+                <input
+                  type="text"
+                  value={description}
+                  onChange={(e) => setDescription(e.target.value)}
                   className="w-full bg-slate-700 border border-slate-600 rounded-md px-3 py-2 text-white focus:outline-none focus:ring-1 focus:ring-blue-500"
                 />
               </div>
@@ -157,11 +159,11 @@ export default function InitRepositoryModal({
             >
               {loading ? (
                 <>
-                  <FiGitBranch className="animate-spin" /> Initializing...
+                  <FiGitBranch className="animate-spin" /> Creating...
                 </>
               ) : (
                 <>
-                  <FiCheck /> Initialize Repository
+                  <FiCheck /> Create Repository
                 </>
               )}
             </button>

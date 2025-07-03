@@ -23,5 +23,8 @@ router.post("/init/:folderId", protect, initializeRepository);
 router.post("/sync/:folderId", protect, syncFilesToRepo);
 router.get("/files/:folderId", protect, getRepoFiles);
 router.get("/verify-token", verifyToken);
+router.get("/test", (req, res) => {
+  res.json({ message: "GitHub API is working" });
+});
 
 export default router;

@@ -239,11 +239,6 @@ export default function GitHubPanel({
   const handleInitializeRepo = () => {
     // Use the internal modal instead of relying on a callback
     setShowInitModal(true);
-
-    // Still call the prop if provided (for compatibility)
-    if (onInitializeRepo) {
-      onInitializeRepo();
-    }
   };
 
   // Add this function to handle successful initialization
