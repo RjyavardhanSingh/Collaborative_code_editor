@@ -15,6 +15,7 @@ export default function CreateRepositoryModal({
   const [description, setDescription] = useState("");
   const [isPrivate, setIsPrivate] = useState(false);
 
+  // Update handleSubmit to verify token before use
   const handleSubmit = async (e) => {
     e.preventDefault();
 
@@ -31,6 +32,29 @@ export default function CreateRepositoryModal({
       const token = localStorage.getItem("githubToken");
       if (!token) {
         setError("GitHub authentication required");
+        return;
+      }
+
+      // Verify token before using it
+      try {
+        const verifyResponse = await api.get("/api/github/verify-token", {
+          headers: {
+            Authorization: `Bearer ${token}`, // Change from token to Bearer
+          },
+        });
+
+        if (!verifyResponse.data.valid) {
+          localStorage.removeItem("githubToken");
+          setError(
+            "Your GitHub session has expired. Please reconnect your account."
+          );
+          return;
+        }
+      } catch (verifyErr) {
+        localStorage.removeItem("githubToken");
+        setError(
+          "GitHub authentication failed. Please reconnect your account."
+        );
         return;
       }
 

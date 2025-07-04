@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { motion } from "framer-motion";
 import {
   FiGitBranch,
@@ -21,6 +21,23 @@ export default function InitRepositoryModal({
   const [isPrivate, setIsPrivate] = useState(false);
   const [addReadme, setAddReadme] = useState(true);
   const [branch, setBranch] = useState("main");
+
+  useEffect(() => {
+    const checkRepository = async () => {
+      try {
+        const { data } = await api.get(`/api/folders/${folderId}`);
+        if (!data.githubRepo || !data.githubRepo.fullName) {
+          setError(
+            "You need to create a GitHub repository first before initializing. Please close this modal and click 'Create Repository' instead."
+          );
+        }
+      } catch (err) {
+        console.error("Failed to check repository status:", err);
+      }
+    };
+
+    checkRepository();
+  }, [folderId]);
 
   const handleInit = async (e) => {
     e.preventDefault();

@@ -44,12 +44,40 @@ export const handleGitHubCallback = async (code, state) => {
     // Exchange code for access token (server-side)
     const response = await api.post("/api/github/authenticate", { code });
 
-    console.log("GitHub authentication successful");
+    // IMPORTANT: Log the entire response to see what we're getting
+    console.log("GitHub authentication full response:", response);
+    console.log("GitHub authentication data:", response.data);
+
+    // GitHub OAuth returns access_token directly in most cases
+    let token = null;
+
+    // Try all possible locations where the token might be
+    if (response.data.access_token) {
+      token = response.data.access_token;
+    } else if (response.data.data && response.data.data.access_token) {
+      token = response.data.data.access_token;
+    } else if (
+      typeof response.data === "string" &&
+      response.data.includes("access_token=")
+    ) {
+      // Handle string format: "access_token=abc123&token_type=bearer&scope=repo"
+      const params = new URLSearchParams(response.data);
+      token = params.get("access_token");
+    }
+
+    if (!token) {
+      console.error("Could not extract token from response:", response.data);
+      throw new Error("No access token received from GitHub");
+    }
 
     // Store GitHub token
-    localStorage.setItem("githubToken", response.data.access_token);
+    console.log(
+      "Saving GitHub token to localStorage:",
+      token.substring(0, 5) + "..."
+    );
+    localStorage.setItem("githubToken", token);
 
-    return response.data;
+    return { token, ...response.data };
   } catch (error) {
     console.error("GitHub authentication error:", error);
     throw error;

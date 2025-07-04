@@ -33,8 +33,22 @@ export const authenticate = async (req, res) => {
     const { code } = req.body;
     const tokenData = await authenticateWithGitHub(code);
 
+    // Log what we're receiving from GitHub
+    console.log("GitHub auth response structure:", Object.keys(tokenData));
+    console.log("Token exists:", !!tokenData.access_token);
+
+    // Make sure we're sending the token in the expected format
+    if (
+      !tokenData.access_token &&
+      tokenData.data &&
+      tokenData.data.access_token
+    ) {
+      tokenData.access_token = tokenData.data.access_token;
+    }
+
     res.json(tokenData);
   } catch (error) {
+    console.error("GitHub authentication error:", error);
     res.status(500).json({ message: error.message });
   }
 };
@@ -1114,13 +1128,22 @@ export const getRepoFiles = async (req, res) => {
 
 export const verifyToken = async (req, res) => {
   try {
-    const token = req.headers.authorization?.split(" ")[1];
+    // We need the GitHub token, not the JWT token
+    // The GitHub token should be sent directly as a query parameter
+    const token = req.query.token;
 
     if (!token) {
-      return res.status(401).json({ message: "No GitHub token provided" });
+      return res
+        .status(401)
+        .json({ message: "GitHub token missing in query parameter" });
     }
 
-    // Test token by making a simple GitHub API call
+    console.log(
+      "Verifying GitHub token (first 10 chars):",
+      token.substring(0, 10)
+    );
+
+    // Test token with GitHub API
     const response = await fetch("https://api.github.com/user", {
       headers: {
         Authorization: `token ${token}`,
@@ -1129,13 +1152,12 @@ export const verifyToken = async (req, res) => {
     });
 
     if (!response.ok) {
-      return res.status(401).json({
-        message: "Invalid GitHub token",
-        githubStatus: response.status,
-      });
+      console.error("GitHub verification failed:", response.status);
+      return res.status(401).json({ message: "Invalid GitHub token" });
     }
 
     const userData = await response.json();
+    console.log("Token verified for GitHub user:", userData.login);
 
     res.json({
       valid: true,
@@ -1146,7 +1168,7 @@ export const verifyToken = async (req, res) => {
       },
     });
   } catch (error) {
-    console.error("Error verifying GitHub token:", error);
-    res.status(500).json({ message: error.message });
+    console.error("Error verifying token:", error);
+    res.status(500).json({ message: "Token verification failed" });
   }
 };

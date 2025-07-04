@@ -77,7 +77,43 @@ export default function GitHubPanel({
     });
   }, [currentFiles]);
 
+  // Add this function at the beginning of the component, after state declarations
+  const verifyAndRefreshToken = async () => {
+    try {
+      const token = localStorage.getItem("githubToken");
+      if (!token) {
+        setIsAuthenticated(false);
+        return false;
+      }
+
+      // FIXED: Send as query parameter, not in Authorization header
+      const response = await api.get(
+        `/api/github/verify-token?token=${encodeURIComponent(token)}`
+      );
+
+      if (response.data.valid) {
+        setIsAuthenticated(true);
+        return true;
+      } else {
+        localStorage.removeItem("githubToken");
+        setIsAuthenticated(false);
+        setError("GitHub token expired. Please reconnect your account.");
+        return false;
+      }
+    } catch (err) {
+      console.error("Token verification failed:", err);
+      localStorage.removeItem("githubToken");
+      setIsAuthenticated(false);
+      setError("GitHub authentication failed. Please reconnect your account.");
+      return false;
+    }
+  };
+
   const fetchRepositoryInfo = async () => {
+    if (!(await verifyAndRefreshToken())) {
+      return;
+    }
+
     try {
       setLoading(true);
       const { data } = await api.get(`/api/folders/${folderId}`);
@@ -114,9 +150,9 @@ export default function GitHubPanel({
 
       const { data } = await api.get(`/api/github/status/${folderId}`, {
         headers: {
-          Authorization: `Bearer ${token}`,
+          Authorization: `Bearer ${token}`, // Change from token to Bearer
         },
-        params: { t: Date.now() }, // Cache busting
+        params: { t: Date.now() },
       });
 
       console.log("Git status response:", data);
@@ -236,9 +272,23 @@ export default function GitHubPanel({
   };
 
   // Replace the handleInitializeRepo function with this
-  const handleInitializeRepo = () => {
-    // Use the internal modal instead of relying on a callback
-    setShowInitModal(true);
+  const handleInitializeRepo = async () => {
+    try {
+      // Check if the folder has a repository already
+      const { data } = await api.get(`/api/folders/${folderId}`);
+
+      if (!data.githubRepo || !data.githubRepo.fullName) {
+        // Show create repository modal first
+        setError("You need to create a GitHub repository first");
+        setShowCreateRepoModal(true);
+      } else {
+        // Show initialize modal
+        setShowInitModal(true);
+      }
+    } catch (err) {
+      console.error("Failed to check repository status:", err);
+      setError("Failed to check repository status");
+    }
   };
 
   // Add this function to handle successful initialization
@@ -335,23 +385,36 @@ export default function GitHubPanel({
     }
 
     // Handle the case when we need initialization but we have repository details
-    if (status?.needsInitialization === true) {
+    if (
+      needsInitialization ||
+      (status?.needsInitialization === true && !repository?.fullName)
+    ) {
       return (
         <div className="flex flex-col items-center justify-center h-64 p-4">
           <FiGitBranch size={48} className="text-slate-400 mb-4" />
           <h3 className="text-slate-200 text-lg font-medium mb-2">
-            Initialize Git Repository
+            Connect GitHub Repository
           </h3>
           <p className="text-slate-400 text-sm text-center mb-4">
-            Your GitHub account is connected to {repository.fullName}, but the
-            local Git repository needs to be initialized.
+            To use Git version control, you need to first create a GitHub
+            repository and then initialize it.
           </p>
-          <button
-            onClick={handleInitializeRepo}
-            className="px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700 flex items-center gap-2"
-          >
-            <FiGitBranch /> Initialize Repository
-          </button>
+          <div className="flex flex-col gap-3">
+            <button
+              onClick={handleConnectRepo}
+              className="px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700 flex items-center gap-2"
+            >
+              <FiPlus /> Step 1: Create Repository
+            </button>
+            <button
+              onClick={handleInitializeRepo}
+              disabled={!repository?.fullName}
+              className="px-4 py-2 bg-blue-500 text-white rounded hover:bg-blue-600 flex items-center gap-2 
+                        disabled:bg-slate-700 disabled:cursor-not-allowed disabled:opacity-60"
+            >
+              <FiGitBranch /> Step 2: Initialize Repository
+            </button>
+          </div>
         </div>
       );
     }
