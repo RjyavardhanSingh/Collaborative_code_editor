@@ -28,6 +28,57 @@ const REPOS_DIR = path.join(__dirname, "../repos");
   }
 })();
 
+// Safety function to ensure we only work with the intended repository
+const safeGitOperation = async (repoPath, operation) => {
+  const originalDir = process.cwd();
+
+  try {
+    // Validate the path is within our repos directory
+    if (!repoPath.startsWith(REPOS_DIR)) {
+      throw new Error(`Invalid repository path: ${repoPath}`);
+    }
+
+    // Check that .git directory exists in repoPath, not in parent directories
+    const gitDir = path.join(repoPath, ".git");
+    try {
+      await fs.access(gitDir);
+    } catch {
+      // Only initialize if we don't have a .git directory specifically in this path
+      console.log(
+        `No .git directory found in ${repoPath}, initializing new repository`
+      );
+    }
+
+    // Change to repository directory
+    process.chdir(repoPath);
+
+    // Execute the operation with proper isolation
+    const git = simpleGit({
+      baseDir: repoPath,
+      binary: "git",
+      env: {
+        ...process.env,
+        GIT_DIR: gitDir,
+        GIT_WORK_TREE: repoPath,
+        GIT_CONFIG_NOSYSTEM: "1",
+        GIT_CONFIG_GLOBAL: "/dev/null",
+        GIT_CEILING_DIRECTORIES: path.dirname(repoPath),
+      },
+    });
+
+    // Run the operation
+    const result = await operation(git);
+
+    // Return to original directory
+    process.chdir(originalDir);
+    return result;
+  } catch (error) {
+    // Always return to original directory
+    process.chdir(originalDir);
+    throw error;
+  }
+};
+
 export const authenticate = async (req, res) => {
   try {
     const { code } = req.body;
