@@ -9,6 +9,9 @@ const api = axios.create({
   },
 });
 
+// Add a console.log to see what default headers are being set
+console.log("API default headers:", api.defaults.headers.common);
+
 api.interceptors.request.use(
   (config) => {
     const token = localStorage.getItem("authToken");

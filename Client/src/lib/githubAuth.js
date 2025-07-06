@@ -1,13 +1,20 @@
 import api from "./api";
 
-// Add this function to check if user is authenticated with GitHub
+// Update the isGitHubAuthenticated function
 export const isGitHubAuthenticated = () => {
   const token = localStorage.getItem("githubToken");
-  return !!token; // Returns true if token exists, false otherwise
+
+  // Only consider the token valid if it has the proper GitHub token format
+  if (!token || !token.startsWith("gho_")) {
+    localStorage.removeItem("githubToken"); // Clear invalid token
+    return false;
+  }
+
+  return true;
 };
 
 export const initGitHubAuth = () => {
-  // GitHub OAuth App credentials (read from environment variables)
+  // GitHub OAuth App credentials
   const GITHUB_CLIENT_ID = import.meta.env.VITE_GITHUB_CLIENT_ID;
   const REDIRECT_URI = `${window.location.origin}/github/callback`;
 
@@ -21,14 +28,19 @@ export const initGitHubAuth = () => {
   const state = Math.random().toString(36).substring(2);
   localStorage.setItem("githubOAuthState", state);
 
-  // Explicitly request the 'repo' scope which is needed for private repos
+  // Store exact current location including path, search params, and hash
+  localStorage.setItem(
+    "githubReturnTo",
+    window.location.pathname + window.location.search
+  );
+
+  // IMPORTANT: Include repo scope for repository creation permissions
+  const scope = "repo";
   const authUrl = `https://github.com/login/oauth/authorize?client_id=${GITHUB_CLIENT_ID}&redirect_uri=${encodeURIComponent(
     REDIRECT_URI
-  )}&scope=repo&state=${state}`;
+  )}&scope=${encodeURIComponent(scope)}&state=${state}`;
 
-  // Save current location to return after auth
-  localStorage.setItem("githubReturnTo", window.location.pathname);
-
+  // Use same window instead of opening a new tab
   window.location.href = authUrl;
 };
 
@@ -90,15 +102,119 @@ export const verifyGitHubToken = async () => {
   if (!token) return false;
 
   try {
-    const response = await api.get("/api/github/verify-token", {
-      headers: {
-        Authorization: `Bearer ${token}`,
-      },
-    });
+    // Change from header to query parameter
+    const response = await api.get(
+      `/api/github/verify-token?token=${encodeURIComponent(token)}`
+    );
     return response.data.valid;
   } catch (error) {
     console.error("GitHub token verification failed:", error);
     localStorage.removeItem("githubToken");
     return false;
+  }
+};
+
+// Update the publishToGitHub function
+export const publishToGitHub = async (
+  folderId,
+  options,
+  setLoading,
+  setError,
+  setRepoStatus
+) => {
+  try {
+    if (setLoading) setLoading(true);
+    if (setError) setError(null);
+
+    const token = localStorage.getItem("githubToken");
+    const authToken = localStorage.getItem("authToken"); // Get app auth token
+
+    if (!token) {
+      if (setError) setError("GitHub authentication required");
+      return false;
+    }
+
+    console.log(
+      `Using GitHub token for publishing: ${token.substring(0, 8)}...`
+    );
+
+    const { name, description, isPrivate, addReadme } = options;
+
+    // Send both tokens - GitHub token as query param and app token as Bearer
+    const response = await api.post(
+      `/api/github/publish/${folderId}?token=${encodeURIComponent(token)}`,
+      { name, description, isPrivate, addReadme },
+      {
+        headers: {
+          Authorization: `Bearer ${authToken}`, // App authentication token
+          "X-Github-Token": token, // GitHub token as custom header
+        },
+      }
+    );
+
+    console.log("Published to GitHub:", response.data);
+    if (setRepoStatus) setRepoStatus("published");
+    return response.data;
+  } catch (err) {
+    console.error("Failed to publish to GitHub:", err);
+    // Provide more detailed error message
+    let errorMsg = "Failed to publish to GitHub";
+    if (err.response?.status === 401) {
+      errorMsg +=
+        ": Authentication failed. Please reconnect your GitHub account.";
+    } else if (err.response?.data?.message) {
+      errorMsg += `: ${err.response.data.message}`;
+    } else {
+      errorMsg += `: ${err.message}`;
+    }
+
+    if (setError) setError(errorMsg);
+    return false;
+  } finally {
+    if (setLoading) setLoading(false);
+  }
+};
+
+// Also add the initializeLocalRepo function which might be needed
+export const initializeLocalRepo = async (
+  folderId,
+  setLoading,
+  setError,
+  setRepoStatus
+) => {
+  try {
+    if (setLoading) setLoading(true);
+    if (setError) setError(null);
+
+    const token = localStorage.getItem("githubToken");
+    if (!token) {
+      if (setError) setError("GitHub authentication required");
+      return false;
+    }
+
+    const response = await api.post(
+      `/api/github/local-init/${folderId}`,
+      {},
+      {
+        headers: {
+          Authorization: `Bearer ${token}`,
+        },
+      }
+    );
+
+    console.log("Local repository initialized:", response.data);
+    if (setRepoStatus) setRepoStatus("initialized");
+
+    return response.data;
+  } catch (err) {
+    console.error("Failed to initialize local repository:", err);
+    if (setError)
+      setError(
+        "Failed to initialize local repository: " +
+          (err.response?.data?.message || err.message)
+      );
+    return false;
+  } finally {
+    if (setLoading) setLoading(false);
   }
 };

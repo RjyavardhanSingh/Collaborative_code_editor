@@ -6,6 +6,11 @@ export const authenticateWithGitHub = async (code) => {
   const clientSecret = process.env.GITHUB_CLIENT_SECRET;
 
   try {
+    // Log values for debugging (remove sensitive data in production)
+    console.log("GitHub OAuth - Client ID exists:", !!clientId);
+    console.log("GitHub OAuth - Client Secret exists:", !!clientSecret);
+    console.log("GitHub OAuth - Code provided:", !!code);
+
     // Exchange code for token
     const tokenResponse = await axios.post(
       "https://github.com/login/oauth/access_token",
@@ -21,10 +26,19 @@ export const authenticateWithGitHub = async (code) => {
       }
     );
 
+    // Check for error in the response
+    if (tokenResponse.data.error) {
+      console.error("GitHub OAuth error:", tokenResponse.data);
+      throw new Error(
+        tokenResponse.data.error_description || tokenResponse.data.error
+      );
+    }
+
     return tokenResponse.data;
   } catch (error) {
     console.error("GitHub authentication error:", error);
-    throw new Error("Failed to authenticate with GitHub");
+    // Forward the actual error message from GitHub
+    throw error.response?.data || error;
   }
 };
 

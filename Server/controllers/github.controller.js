@@ -250,35 +250,9 @@ export const getUserRepos = async (req, res) => {
   }
 };
 
-// Function to initialize a local Git repository for a folder
-const initializeLocalRepo = async (folderId, cloneUrl, token) => {
-  const folderRepoPath = path.join(REPOS_DIR, folderId.toString());
-
-  try {
-    // Create directory if it doesn't exist
-    await fs.mkdir(folderRepoPath, { recursive: true });
-
-    // Initialize git in the folder
-    const git = simpleGit(folderRepoPath);
-
-    // Set up authentication for clone
-    const authUrl = cloneUrl.replace("https://", `https://oauth2:${token}@`);
-
-    // Clone the repository
-    await git.clone(authUrl, ".");
-
-    return folderRepoPath;
-  } catch (error) {
-    console.error(
-      `Error initializing local repository for folder ${folderId}:`,
-      error
-    );
-    throw new Error("Failed to initialize local Git repository");
-  }
-};
-
-// More controller methods for git operations
 export const commitChanges = async (req, res) => {
+  const originalDir = process.cwd();
+
   try {
     const { folderId, message, files } = req.body;
 
@@ -286,36 +260,20 @@ export const commitChanges = async (req, res) => {
       return res.status(400).json({ message: "Commit message is required" });
     }
 
-    // Log detailed info for debugging
-    console.log("Commit request received:", {
-      folderId,
-      messageLength: message?.length,
-      filesCount: files?.length,
-      user: req.user?._id,
-    });
-
     // Find folder to verify it exists and has GitHub repo connected
     const folder = await Folder.findById(folderId);
-
-    if (!folder) {
-      console.log(`Folder not found: ${folderId}`);
-      return res.status(404).json({ message: "Folder not found" });
-    }
-
-    if (!folder.githubRepo) {
-      console.log(`No GitHub repo connected to folder: ${folderId}`);
-      return res
-        .status(404)
-        .json({ message: "No GitHub repository connected to this folder" });
+    if (!folder || !folder.githubRepo) {
+      return res.status(404).json({
+        message: "No GitHub repository connected to this folder",
+      });
     }
 
     // Get GitHub token for authentication
     const token = req.headers.authorization?.split(" ")[1];
     if (!token) {
-      console.log("Missing GitHub token in request");
-      return res
-        .status(401)
-        .json({ message: "GitHub token is required for commit" });
+      return res.status(401).json({
+        message: "GitHub token is required for commit",
+      });
     }
 
     // Test GitHub token with a simple API request
@@ -324,244 +282,121 @@ export const commitChanges = async (req, res) => {
         headers: { Authorization: `token ${token}` },
       });
       if (!response.ok) {
-        console.error("Invalid GitHub token:", await response.text());
-        return res
-          .status(401)
-          .json({ message: "Invalid GitHub token - authentication failed" });
-      }
-      console.log("GitHub token is valid");
-    } catch (tokenErr) {
-      console.error("Error testing GitHub token:", tokenErr);
-      return res
-        .status(401)
-        .json({ message: "Failed to validate GitHub token" });
-    }
-
-    // Setup repository path
-    const repoPath = path.join(REPOS_DIR, folderId.toString());
-    console.log(`Working with repository at: ${repoPath}`);
-
-    // Make sure the repo directory exists
-    try {
-      await fs.mkdir(repoPath, { recursive: true });
-      console.log(`Repository directory created/verified: ${repoPath}`);
-    } catch (dirErr) {
-      console.error(`Error creating repo directory: ${dirErr}`);
-      return res.status(500).json({
-        message: `Failed to create repository directory: ${dirErr.message}`,
-      });
-    }
-
-    // Check if Git is installed and available
-    try {
-      const git = simpleGit();
-      const version = await git.version();
-      console.log(`Git version: ${version}`);
-    } catch (gitErr) {
-      console.error("Git not available:", gitErr);
-      return res.status(500).json({
-        message: "Git is not installed or not available to the server process",
-      });
-    }
-
-    // Initialize repository with better error handling
-    let git;
-    try {
-      git = simpleGit(repoPath);
-
-      // Check if it's a valid git repo
-      const isRepo = await git.checkIsRepo().catch(() => false);
-      if (!isRepo) {
-        console.log("Initializing new Git repository");
-        await git.init();
-      }
-    } catch (initErr) {
-      console.error("Failed to initialize Git repository:", initErr);
-      return res.status(500).json({
-        message: `Failed to initialize Git repository: ${initErr.message}`,
-      });
-    }
-
-    // Configure remote with better error handling
-    try {
-      if (folder.githubRepo?.fullName) {
-        const remoteUrl = `https://oauth2:${token}@github.com/${folder.githubRepo.fullName}.git`;
-
-        // Check if remote exists
-        const remotes = await git.getRemotes();
-        if (!remotes.find((remote) => remote.name === "origin")) {
-          console.log(`Adding remote: origin -> ${folder.githubRepo.fullName}`);
-          await git.addRemote("origin", remoteUrl);
-        } else {
-          console.log("Remote 'origin' already exists");
-          // Update the remote URL to ensure it has the current token
-          try {
-            await git.remote(["set-url", "origin", remoteUrl]);
-            console.log("Updated remote URL with current token");
-          } catch (remoteUpdateErr) {
-            console.error("Error updating remote URL:", remoteUpdateErr);
-          }
-        }
-      } else {
-        console.error("Missing GitHub repository information in folder");
-        return res
-          .status(400)
-          .json({ message: "Missing GitHub repository information" });
-      }
-    } catch (remoteErr) {
-      console.error("Error configuring remote:", remoteErr);
-      return res
-        .status(500)
-        .json({ message: `Failed to configure remote: ${remoteErr.message}` });
-    }
-
-    // Configure Git user with better error handling
-    try {
-      console.log("Configuring Git user");
-      await git.addConfig(
-        "user.name",
-        req.user.username || "Collaborative Editor User"
-      );
-      await git.addConfig(
-        "user.email",
-        req.user.email || "user@collaborative-editor.com"
-      );
-      console.log("Git user configured");
-    } catch (configErr) {
-      console.error("Failed to configure Git user:", configErr);
-      return res.status(500).json({
-        message: `Failed to configure Git user: ${configErr.message}`,
-      });
-    }
-
-    // Write files to repo with better error handling
-    try {
-      console.log(`Writing ${files?.length} files to repository`);
-      for (const file of files) {
-        if (!file.path || file.content === undefined) {
-          console.warn("Invalid file object:", file);
-          continue;
-        }
-
-        const filePath = path.join(repoPath, file.path);
-        await fs.mkdir(path.dirname(filePath), { recursive: true });
-        await fs.writeFile(filePath, file.content || "");
-        console.log(`Written file: ${file.path}`);
-      }
-    } catch (fileErr) {
-      console.error("Failed to write files:", fileErr);
-      return res.status(500).json({
-        message: `Failed to write files to repository: ${fileErr.message}`,
-      });
-    }
-
-    // Add files to staging with better error handling
-    try {
-      console.log("Adding files to Git staging");
-      await git.add(".");
-    } catch (addErr) {
-      console.error("Failed to stage files:", addErr);
-      return res
-        .status(500)
-        .json({ message: `Failed to stage files: ${addErr.message}` });
-    }
-
-    // Check status before committing
-    try {
-      const status = await git.status();
-      console.log("Git status before commit:", status);
-
-      if (status.files.length === 0) {
-        console.log("No changes to commit");
-        return res.json({ message: "No changes to commit", noChanges: true });
-      }
-    } catch (statusErr) {
-      console.error("Failed to check Git status:", statusErr);
-      // Continue anyway - not a fatal error
-    }
-
-    // Commit changes with better error handling
-    let commitResult;
-    try {
-      console.log(`Committing with message: ${message}`);
-      commitResult = await git.commit(message);
-      console.log("Commit successful:", commitResult);
-    } catch (commitErr) {
-      console.error("Failed to commit changes:", commitErr);
-      return res
-        .status(500)
-        .json({ message: `Failed to commit changes: ${commitErr.message}` });
-    }
-
-    // Push changes with better error handling
-    try {
-      console.log(`Pushing to ${folder.githubRepo.fullName}`);
-      const remoteUrl = `https://oauth2:${token}@github.com/${folder.githubRepo.fullName}.git`;
-
-      try {
-        console.log("Attempting push...");
-        await git.push("origin", folder.githubRepo.defaultBranch || "main");
-        console.log("Push successful");
-      } catch (pushErr) {
-        console.log("Initial push failed:", pushErr.message);
-
-        if (pushErr.message.includes("no upstream")) {
-          console.log("Setting upstream for push");
-          await git.push([
-            "--set-upstream",
-            "origin",
-            folder.githubRepo.defaultBranch || "main",
-          ]);
-          console.log("Push with upstream successful");
-        } else {
-          console.log("Trying pull before push");
-          try {
-            await git.pull("origin", folder.githubRepo.defaultBranch || "main");
-            await git.push();
-            console.log("Pull and push successful");
-          } catch (pullPushErr) {
-            console.error("Pull and push failed:", pullPushErr);
-            throw pullPushErr;
-          }
-        }
-      }
-
-      // Update last synced timestamp
-      folder.githubRepo.lastSynced = new Date();
-      await folder.save();
-    } catch (pushErr) {
-      console.error("Failed to push changes:", pushErr);
-      // Return a more user-friendly message for common issues
-      if (pushErr.message?.includes("Authentication failed")) {
         return res.status(401).json({
-          message: "GitHub authentication failed. Your token may have expired.",
-        });
-      } else if (pushErr.message?.includes("403")) {
-        return res.status(403).json({
-          message:
-            "Permission denied when pushing to GitHub. Check repository permissions.",
+          message: "Invalid GitHub token - authentication failed",
         });
       }
-      return res
-        .status(500)
-        .json({ message: `Failed to push changes: ${pushErr.message}` });
+    } catch (tokenErr) {
+      return res.status(401).json({
+        message: "Failed to validate GitHub token",
+      });
     }
 
-    console.log("Commit and push successful");
+    // Setup repository path & change to it
+    const repoPath = path.join(REPOS_DIR, folderId.toString());
+    await fs.mkdir(repoPath, { recursive: true });
+
+    // CRITICAL: Change to repository directory BEFORE git operations
+    process.chdir(repoPath);
+
+    // Initialize Git with proper configuration
+    const git = simpleGit({
+      baseDir: repoPath,
+      binary: "git",
+    });
+
+    // Initialize git repo if not already
+    const isRepo = await git.checkIsRepo().catch(() => false);
+    if (!isRepo) {
+      await git.init();
+
+      // Add remote if we have repo info
+      const remoteUrl = `https://oauth2:${token}@github.com/${folder.githubRepo.fullName}.git`;
+      await git.addRemote("origin", remoteUrl);
+    }
+
+    // Configure Git user (using generic values if req.user is missing)
+    const username = req.user?.username || "Collaborative Editor User";
+    const email = req.user?.email || "user@collaborative-editor.com";
+    await git.addConfig("user.name", username);
+    await git.addConfig("user.email", email);
+
+    // Write files - IMPORTANT: Use relative paths
+    console.log(`Writing ${files?.length} files to repository`);
+    for (const file of files) {
+      if (!file.path || file.content === undefined) continue;
+
+      // Write files with correct relative path
+      const filePath = file.path; // Don't join with repoPath - we're already in the right directory
+      await fs.mkdir(path.dirname(filePath), { recursive: true });
+      await fs.writeFile(filePath, file.content || "");
+    }
+
+    // Add all files to staging area
+    await git.add(".");
+
+    // Verify we have changes to commit
+    const status = await git.status();
+    if (status.files.length === 0) {
+      process.chdir(originalDir);
+      return res.json({ message: "No changes to commit", noChanges: true });
+    }
+
+    // Commit changes
+    const commitResult = await git.commit(message);
+
+    // Try to push to remote
+    try {
+      await git.push("origin", folder.githubRepo.defaultBranch || "main");
+    } catch (pushErr) {
+      // Try alternative push methods if initial push fails
+      if (pushErr.message.includes("no upstream")) {
+        await git.push([
+          "--set-upstream",
+          "origin",
+          folder.githubRepo.defaultBranch || "main",
+        ]);
+      } else {
+        try {
+          // Try pull first if push failed
+          await git.pull("origin", folder.githubRepo.defaultBranch || "main");
+          await git.push();
+        } catch (finalErr) {
+          // Just log this error but don't fail - we successfully committed locally
+          console.error("Push failed:", finalErr.message);
+        }
+      }
+    }
+
+    // Update last synced timestamp
+    folder.githubRepo.lastSynced = new Date();
+    await folder.save();
+
+    // Change back to original directory before sending response
+    process.chdir(originalDir);
+
     res.json({
-      message: "Changes committed and pushed successfully",
+      message: "Changes committed successfully",
       commit: commitResult,
       timestamp: new Date(),
     });
   } catch (error) {
+    // IMPORTANT: Always restore original directory
+    try {
+      process.chdir(originalDir);
+    } catch (cdErr) {
+      // Ignore error changing back
+    }
+
     console.error("💥 Error in commitChanges:", error);
     res.status(500).json({
       message: error.message,
-      stack: process.env.NODE_ENV === "production" ? undefined : error.stack,
-      command: error.git?.command || null,
-      failed: error.git?.failed || null,
-      errorCode: error.code,
-      gitMessage: error.git?.message,
+      errorDetails: {
+        command: error.git?.command,
+        failed: error.git?.failed,
+        errorCode: error.code,
+        gitMessage: error.git?.message,
+      },
     });
   }
 };
@@ -735,208 +570,14 @@ export const getStatus = async (req, res) => {
   }
 };
 
-export const initializeRepository = async (req, res) => {
-  const originalDir = process.cwd();
-
-  try {
-    const { folderId } = req.params;
-    const {
-      isPrivate = false,
-      addReadme = true,
-      defaultBranch = "main",
-    } = req.body;
-    const token = req.headers.authorization?.split(" ")[1];
-
-    if (!token) {
-      return res.status(401).json({ message: "GitHub token is required" });
-    }
-
-    console.log(`Initializing repository for folder: ${folderId}`);
-    console.log(`Options:`, req.body);
-
-    // Find the folder
-    const folder = await Folder.findById(folderId);
-    if (!folder) {
-      return res.status(404).json({ message: "Folder not found" });
-    }
-
-    // Check if folder has a GitHub repo connected
-    if (!folder.githubRepo || !folder.githubRepo.fullName) {
-      return res.status(404).json({
-        message:
-          "No GitHub repository connected to this folder. Please create a repository first.",
-      });
-    }
-
-    // Setup the repository path
-    const repoPath = path.join(REPOS_DIR, folderId.toString());
-    console.log(`Repository path: ${repoPath}`);
-
-    try {
-      // Ensure directory exists
-      await fs.mkdir(repoPath, { recursive: true });
-      console.log("Repository directory created/verified");
-
-      // Switch to repository directory
-      process.chdir(repoPath);
-      console.log(`Changed working directory to: ${repoPath}`);
-
-      // Initialize git repository with proper isolation
-      const git = simpleGit({
-        baseDir: repoPath,
-        binary: "git",
-      });
-
-      // Check if it's a valid git repo
-      const isRepo = await git.checkIsRepo().catch(() => false);
-      if (!isRepo) {
-        console.log("Initializing new Git repository");
-        await git.init();
-      } else {
-        console.log("Repository already initialized");
-      }
-
-      // Configure Git user
-      console.log("Configuring Git user");
-      await git.addConfig(
-        "user.name",
-        req.user?.username || "Collaborative Editor User"
-      );
-      await git.addConfig(
-        "user.email",
-        req.user?.email || "user@collaborative-editor.com"
-      );
-
-      // Set remote URL
-      const remoteUrl = `https://oauth2:${token}@github.com/${folder.githubRepo.fullName}.git`;
-      console.log(`Setting up remote for: ${folder.githubRepo.fullName}`);
-
-      // Check if remote exists
-      const remotes = await git.getRemotes();
-      if (!remotes.find((remote) => remote.name === "origin")) {
-        console.log("Adding remote 'origin'");
-        await git.addRemote("origin", remoteUrl);
-      } else {
-        console.log("Updating remote 'origin' URL");
-        await git.remote(["set-url", "origin", remoteUrl]);
-      }
-
-      // Create README if requested
-      if (addReadme) {
-        console.log("Creating README.md");
-        const readmeContent = `# ${folder.name}\n\nThis repository was created with DevUnity Collaborative Code Editor.`;
-        await fs.writeFile(path.join(repoPath, "README.md"), readmeContent);
-      }
-
-      // Stage all files
-      console.log("Staging files");
-      await git.add(".");
-
-      // Check if there are changes to commit
-      const status = await git.status();
-      console.log("Git status:", JSON.stringify(status, null, 2));
-
-      if (status.files.length > 0) {
-        // Commit changes
-        console.log("Committing changes");
-        await git.commit("Initial commit");
-      } else {
-        console.log("No changes to commit");
-      }
-
-      // Try to pull first (this might fail for new repos, which is fine)
-      try {
-        console.log(`Pulling from origin/${defaultBranch}`);
-        await git.pull("origin", defaultBranch).catch(() => {
-          console.log(`Pull failed - this is normal for new repositories`);
-        });
-      } catch (pullErr) {
-        console.log("Pull error (expected for new repos):", pullErr.message);
-      }
-
-      // Push changes
-      try {
-        console.log(`Pushing to origin/${defaultBranch}`);
-        await git.push(["-u", "origin", defaultBranch]);
-        console.log("Push successful");
-      } catch (pushErr) {
-        console.log("Push error:", pushErr.message);
-
-        // If push fails with specific errors, try force push
-        if (
-          pushErr.message?.includes("rejected") ||
-          pushErr.message?.includes("not-fast-forward")
-        ) {
-          console.log("Attempting force push");
-          await git.push(["-u", "-f", "origin", defaultBranch]);
-          console.log("Force push successful");
-        } else {
-          throw pushErr;
-        }
-      }
-
-      // Mark repository as initialized in database
-      console.log("Updating folder in database");
-      folder.githubRepo.isInitialized = true;
-      folder.githubRepo.defaultBranch = defaultBranch;
-      folder.githubRepo.lastSynced = new Date();
-      await folder.save();
-
-      // Change back to original directory
-      process.chdir(originalDir);
-      console.log("Changed back to original directory");
-
-      // Get updated status
-      const updatedStatus = await git.status();
-
-      // Return success with repository information
-      res.json({
-        message: "Repository initialized successfully",
-        repository: folder.githubRepo,
-        status: {
-          ...updatedStatus,
-          isGitRepo: true,
-          needsInitialization: false,
-        },
-      });
-    } catch (gitErr) {
-      // Change back to original directory in case of error
-      try {
-        process.chdir(originalDir);
-      } catch (cdErr) {
-        // Ignore directory change errors
-      }
-
-      console.error("Git operation error:", gitErr);
-      return res.status(500).json({
-        message: `Git operation failed: ${gitErr.message}`,
-        command: gitErr.git?.command,
-        error: gitErr.message,
-        stack: process.env.NODE_ENV === "production" ? undefined : gitErr.stack,
-      });
-    }
-  } catch (error) {
-    // Make sure we change back to original directory
-    try {
-      process.chdir(originalDir);
-    } catch (cdErr) {
-      // Ignore directory change errors
-    }
-
-    console.error("Server error in initializeRepository:", error);
-    res.status(500).json({
-      message: "Failed to initialize repository",
-      error: error.message,
-      stack: process.env.NODE_ENV === "production" ? undefined : error.stack,
-    });
-  }
-};
-
 // Add this function to github.controller.js
 export const syncFilesToRepo = async (req, res) => {
   try {
     const { folderId } = req.params;
     const { files } = req.body;
+
+    // Original directory to return to later
+    const originalDir = process.cwd();
 
     const folder = await Folder.findById(folderId);
     if (!folder || !folder.githubRepo) {
@@ -951,43 +592,33 @@ export const syncFilesToRepo = async (req, res) => {
     // Ensure directory exists
     await fs.mkdir(repoPath, { recursive: true });
 
-    let changedFiles = 0;
-    // Write all files to the repo directory
-    for (const file of files) {
-      const filePath = path.join(repoPath, file.path);
+    // CRITICAL: Change to the repo directory first
+    process.chdir(repoPath);
 
-      // Create directories if needed
+    let changedFiles = 0;
+    // Write all files to the repo directory with RELATIVE paths
+    for (const file of files) {
+      // Don't include repoPath - we're already in that directory
+      const filePath = file.path;
+
+      // Create directories if needed (still relative to repoPath)
       await fs.mkdir(path.dirname(filePath), { recursive: true });
 
-      // Check if content is different
-      let contentDifferent = true;
-      try {
-        const existingContent = await fs.readFile(filePath, "utf8");
-        contentDifferent = existingContent !== file.content;
-      } catch (err) {
-        // File doesn't exist, so it's definitely different
-      }
-
-      if (contentDifferent) {
-        // Write file content
-        await fs.writeFile(filePath, file.content);
-        console.log(`✏️ Updated file: ${file.path}`);
-        changedFiles++;
-      }
+      // Write file
+      await fs.writeFile(filePath, file.content || "");
+      changedFiles++;
     }
 
-    // Force git to see the changes
-    const git = simpleGit(repoPath);
-    await git.add("--intent-to-add", ".");
+    // Return to original directory
+    process.chdir(originalDir);
 
     res.json({
-      message: "Files synced to repository successfully",
+      message: "Files synced successfully",
       changedFiles,
-      repoPath,
     });
   } catch (error) {
-    console.error("Error syncing files to repository:", error);
-    res.status(500).json({ message: error.message, stack: error.stack });
+    console.error("Error syncing files:", error);
+    res.status(500).json({ message: error.message });
   }
 };
 
@@ -1128,8 +759,6 @@ export const getRepoFiles = async (req, res) => {
 
 export const verifyToken = async (req, res) => {
   try {
-    // We need the GitHub token, not the JWT token
-    // The GitHub token should be sent directly as a query parameter
     const token = req.query.token;
 
     if (!token) {
@@ -1143,32 +772,467 @@ export const verifyToken = async (req, res) => {
       token.substring(0, 10)
     );
 
-    // Test token with GitHub API
-    const response = await fetch("https://api.github.com/user", {
-      headers: {
-        Authorization: `token ${token}`,
-        Accept: "application/vnd.github.v3+json",
-      },
-    });
+    // Test token with GitHub API using different endpoints in case of scope limitations
+    try {
+      // Try simple user check first
+      const response = await fetch("https://api.github.com/user", {
+        headers: {
+          Authorization: `token ${token}`,
+          Accept: "application/vnd.github.v3+json",
+        },
+      });
 
-    if (!response.ok) {
+      if (response.ok) {
+        const userData = await response.json();
+        console.log("Token verified for GitHub user:", userData.login);
+
+        return res.json({
+          valid: true,
+          user: {
+            login: userData.login,
+            id: userData.id,
+            avatar_url: userData.avatar_url,
+          },
+        });
+      }
+
+      // If user endpoint fails, the token is likely invalid
       console.error("GitHub verification failed:", response.status);
-      return res.status(401).json({ message: "Invalid GitHub token" });
+      return res.status(401).json({
+        message: "Invalid GitHub token - please reconnect your GitHub account",
+        error: "token_invalid",
+      });
+    } catch (error) {
+      console.error("Error verifying token:", error);
+      return res.status(500).json({ message: "Token verification failed" });
+    }
+  } catch (error) {
+    console.error("Error in verifyToken:", error);
+    return res.status(500).json({ message: "Token verification failed" });
+  }
+};
+
+// 1. Local initialization (no GitHub required)
+export const initializeLocalRepo = async (
+  folderId,
+  setLoading,
+  setError,
+  setRepoStatus
+) => {
+  try {
+    setLoading(true);
+    setError(null);
+
+    const response = await api.post(`/api/github/local-init/${folderId}`);
+    console.log("Local repo initialized:", response.data);
+    setRepoStatus("initialized");
+
+    return true;
+  } catch (err) {
+    setError("Failed to initialize local repository");
+    console.error(err);
+    return false;
+  } finally {
+    setLoading(false);
+  }
+};
+// Local repository initialization (no GitHub needed)
+export const localInitializeRepository = async (req, res) => {
+  const originalDir = process.cwd();
+
+  try {
+    const { folderId } = req.params;
+    const folder = await Folder.findById(folderId);
+
+    if (!folder) {
+      return res.status(404).json({ message: "Folder not found" });
     }
 
-    const userData = await response.json();
-    console.log("Token verified for GitHub user:", userData.login);
+    // Set up the repository path
+    const repoPath = path.join(REPOS_DIR, folderId.toString());
+    console.log(`Initializing local repository at: ${repoPath}`);
 
-    res.json({
-      valid: true,
-      user: {
-        login: userData.login,
-        id: userData.id,
-        avatar_url: userData.avatar_url,
-      },
+    // Create directory if it doesn't exist
+    await fs.mkdir(repoPath, { recursive: true });
+
+    // Change to repository directory
+    process.chdir(repoPath);
+
+    // Initialize git repository
+    const git = simpleGit({
+      baseDir: repoPath,
+      binary: "git",
     });
+
+    // Check if it's already a git repo
+    const isRepo = await git.checkIsRepo().catch(() => false);
+
+    if (!isRepo) {
+      console.log("Initializing new Git repository");
+      await git.init();
+    } else {
+      console.log("Repository already initialized");
+    }
+
+    // Configure Git user
+    console.log("Configuring Git user");
+    await git.addConfig(
+      "user.name",
+      req.user?.username || "Collaborative Editor User"
+    );
+    await git.addConfig(
+      "user.email",
+      req.user?.email || "user@collaborative-editor.com"
+    );
+
+    // Auto-sync files from database to repository
+    try {
+      console.log("Syncing database content to repository files");
+      const documents = await Document.find({ folder: folderId });
+
+      for (const doc of documents) {
+        const filePath = path.join(repoPath, doc.title);
+        await fs.mkdir(path.dirname(filePath), { recursive: true });
+        await fs.writeFile(filePath, doc.content || "");
+        console.log(`Written file: ${doc.title}`);
+      }
+
+      // Stage all files
+      await git.add(".");
+
+      // Initial commit if there are files
+      const status = await git.status();
+      if (status.files.length > 0) {
+        await git.commit("Initial commit");
+        console.log("Made initial commit");
+      }
+
+      // Update folder in database
+      folder.gitInitialized = true;
+      await folder.save();
+
+      // Return to original directory
+      process.chdir(originalDir);
+
+      res.json({
+        message: "Local repository initialized successfully",
+        isGitRepo: true,
+        status: status,
+      });
+    } catch (syncErr) {
+      console.error("Error syncing files:", syncErr);
+      process.chdir(originalDir);
+      throw syncErr;
+    }
   } catch (error) {
-    console.error("Error verifying token:", error);
-    res.status(500).json({ message: "Token verification failed" });
+    // Ensure we change back to original directory
+    try {
+      process.chdir(originalDir);
+    } catch (cdErr) {
+      // Ignore directory change errors
+    }
+
+    console.error("Error initializing local repository:", error);
+    res.status(500).json({
+      message: "Failed to initialize local repository",
+      error: error.message,
+    });
+  }
+};
+
+// Add or update this function
+export const publishToGitHub = async (req, res) => {
+  const originalDir = process.cwd();
+
+  try {
+    const { folderId } = req.params;
+    const { name, description, isPrivate, addReadme } = req.body;
+
+    // Get GitHub token from multiple possible locations
+    let token = req.headers["x-github-token"]; // From custom header
+
+    // Try query parameter if header not found
+    if (!token) {
+      token = req.query.token;
+    }
+
+    if (!token) {
+      console.log("No GitHub token found in request");
+      return res
+        .status(401)
+        .json({ message: "GitHub token required for publishing" });
+    }
+
+    console.log(
+      `Publishing repository for folder ${folderId} using GitHub token: ${token.substring(
+        0,
+        8
+      )}...`
+    );
+
+    // Find the folder
+    const folder = await Folder.findById(folderId);
+    if (!folder) {
+      return res.status(404).json({ message: "Folder not found" });
+    }
+
+    // Verify GitHub token
+    try {
+      const response = await fetch("https://api.github.com/user", {
+        headers: {
+          Authorization: `token ${token}`,
+          Accept: "application/vnd.github.v3+json",
+        },
+      });
+
+      if (!response.ok) {
+        return res.status(401).json({ message: "Invalid GitHub token" });
+      }
+
+      const userData = await response.json();
+      console.log(`Publishing repo for GitHub user: ${userData.login}`);
+    } catch (authErr) {
+      console.error("GitHub auth error:", authErr);
+      return res
+        .status(401)
+        .json({ message: "Failed to authenticate with GitHub" });
+    }
+
+    // Create repository on GitHub
+    try {
+      const createRepoResponse = await fetch(
+        "https://api.github.com/user/repos",
+        {
+          method: "POST",
+          headers: {
+            Authorization: `token ${token}`,
+            Accept: "application/vnd.github.v3+json",
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({
+            name,
+            description: description || "",
+            private: isPrivate === true,
+            auto_init: false, // We'll push our existing content
+          }),
+        }
+      );
+
+      if (!createRepoResponse.ok) {
+        const errorData = await createRepoResponse.json();
+        console.error("GitHub repo creation error:", errorData);
+
+        if (
+          errorData.errors?.find((e) =>
+            e.message?.includes("name already exists")
+          )
+        ) {
+          return res
+            .status(409)
+            .json({ message: "A repository with this name already exists" });
+        }
+
+        return res.status(createRepoResponse.status).json({
+          message: "Failed to create GitHub repository",
+          details: errorData,
+        });
+      }
+
+      const repoData = await createRepoResponse.json();
+      console.log(`Created GitHub repository: ${repoData.full_name}`);
+
+      // Connect local repo to GitHub - FIX THE SECURITY ISSUE HERE
+      const repoPath = path.join(REPOS_DIR, folderId.toString());
+
+      try {
+        // CRITICAL SECURITY FIX: Create a completely isolated Git repository
+        // First, ensure the directory exists
+        await fs.mkdir(repoPath, { recursive: true });
+
+        // CRITICAL: Completely remove any existing Git setup to prevent inheritance issues
+        try {
+          await fs.rm(path.join(repoPath, ".git"), {
+            recursive: true,
+            force: true,
+          });
+        } catch (err) {
+          // Ignore errors if .git doesn't exist
+        }
+
+        // Change to repository directory
+        process.chdir(repoPath);
+        console.log("Working directory changed to:", process.cwd());
+
+        // Create a new fully isolated Git repository
+        const git = simpleGit({
+          baseDir: repoPath,
+          binary: "git",
+          // Force Git to ONLY use this directory with explicit environment variables
+          env: {
+            ...process.env,
+            GIT_DIR: path.join(repoPath, ".git"),
+            GIT_WORK_TREE: repoPath,
+            GIT_CONFIG_NOSYSTEM: "1",
+            GIT_CONFIG_GLOBAL: "/dev/null", // Prevent using global config
+            GIT_CEILING_DIRECTORIES: path.dirname(repoPath), // Prevent looking at parent directories
+          },
+        });
+
+        // Initialize a fresh Git repository
+        await git.init();
+        console.log("Initialized fresh Git repository");
+
+        // Create a restrictive .gitignore that properly allows files in the repository
+        const gitignoreContent = `# Prevent looking outside this directory
+../*
+# But allow everything inside this directory
+!*`;
+        await fs.writeFile(path.join(repoPath, ".gitignore"), gitignoreContent);
+
+        // ADD THIS LINE - Missing step to add the remote repository URL
+        await git.addRemote(
+          "origin",
+          `https://oauth2:${token}@github.com/${repoData.full_name}.git`
+        );
+        console.log(`Added remote: origin -> ${repoData.full_name}`);
+
+        // SECURITY FIX: Only add files from database instead of using generic "."
+        console.log("Syncing database documents to repository...");
+        const documents = await Document.find({ folder: folderId });
+
+        // Write each document as a file
+        let fileCount = 0;
+        for (const doc of documents) {
+          // Use relative paths within the repo directory
+          const filePath = doc.title;
+
+          // Ensure subdirectories exist
+          if (path.dirname(filePath) !== ".") {
+            await fs.mkdir(path.dirname(filePath), { recursive: true });
+          }
+
+          // Write the file
+          await fs.writeFile(filePath, doc.content || "");
+          fileCount++;
+        }
+
+        console.log(`Added ${fileCount} files from database to repository`);
+
+        // Create README if requested
+        if (addReadme) {
+          const readmeContent = `# ${name}\n\nThis repository was created with DevUnity Collaborative Code Editor.`;
+          await fs.writeFile("README.md", readmeContent);
+          fileCount++;
+          // Add the -f flag to force adding the README despite gitignore rules
+          await git.add(["-f", "README.md"]);
+        } else {
+          // If there are no files, at least add the gitignore
+          await git.add(".gitignore");
+        }
+
+        // Commit changes
+        console.log("Committing changes...");
+        const status = await git.status();
+
+        if (status.files.length === 0 && !addReadme) {
+          console.log("No files to commit");
+          // Ensure we still try to push by creating an empty commit if needed
+          if (addReadme) {
+            await git.commit("Initial commit with README");
+          } else {
+            await git.commit("Initial commit");
+          }
+        } else {
+          await git.commit("Initial commit");
+        }
+
+        // CRITICAL: Check if branch exists before pushing
+        const branches = await git.branch();
+        console.log("Local branches:", branches);
+
+        // If main branch doesn't exist, create it by making a commit
+        if (!branches.all.includes("main")) {
+          // Create an empty commit if needed to establish the branch
+          try {
+            console.log("Creating main branch with initial commit");
+            await git.commit("Initial commit", { "--allow-empty": null });
+          } catch (commitErr) {
+            console.log("Commit error:", commitErr);
+          }
+        }
+
+        // Push to GitHub with more detailed error handling
+        try {
+          console.log("Pushing to GitHub repository...");
+
+          // Get the current branch name
+          const currentBranch = (await git.branch()).current || "main";
+          console.log("Current branch:", currentBranch);
+
+          // Push using the current branch name instead of hardcoded 'main'
+          await git.push(["-u", "origin", currentBranch]);
+          console.log(`Successfully pushed to ${currentBranch} branch`);
+        } catch (pushErr) {
+          console.error("Push error:", pushErr.message);
+
+          // Try with force flag but use the actual branch name
+          try {
+            const currentBranch = (await git.branch()).current || "main";
+            console.log("Trying force push to branch:", currentBranch);
+            await git.push(["-u", "-f", "origin", currentBranch]);
+          } catch (forcePushErr) {
+            console.error("Force push also failed:", forcePushErr);
+            throw forcePushErr;
+          }
+        }
+
+        // Update folder in database with GitHub repo info
+        folder.githubRepo = {
+          name: repoData.name,
+          fullName: repoData.full_name,
+          owner: repoData.owner.login,
+          isPrivate: repoData.private,
+          defaultBranch: repoData.default_branch || "main",
+          url: repoData.html_url,
+          isInitialized: true,
+          lastSynced: new Date(),
+        };
+
+        await folder.save();
+
+        // Return to original directory
+        process.chdir(originalDir);
+
+        return res.json({
+          message: "Repository published to GitHub successfully",
+          repository: folder.githubRepo,
+          status: await git.status(),
+        });
+      } catch (error) {
+        // Ensure we change back to original directory
+        process.chdir(originalDir);
+        throw error;
+      }
+    } catch (error) {
+      console.error("Error publishing to GitHub:", error);
+      process.chdir(originalDir);
+      return res.status(500).json({
+        message: "Failed to publish repository to GitHub",
+        error: error.message,
+      });
+    }
+  } catch (error) {
+    // Ensure we change back to original directory
+    try {
+      process.chdir(originalDir);
+    } catch (cdErr) {
+      // Ignore directory change errors
+    }
+
+    console.error("Error in publishToGitHub:", error);
+    return res.status(500).json({
+      message: "Failed to publish repository",
+      error: error.message,
+    });
   }
 };

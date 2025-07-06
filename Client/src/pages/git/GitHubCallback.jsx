@@ -17,10 +17,23 @@ export default function GitHubCallback() {
           throw new Error("No code parameter found");
         }
 
+        // Important: Get user JWT token before GitHub OAuth processing
+        const jwt = localStorage.getItem("authToken"); // FIXED: Use authToken instead of token
+
+        // Process GitHub authentication
         await handleGitHubCallback(code, state);
+
+        // CRITICAL FIX: Restore user's JWT token if it exists
+        if (jwt) {
+          localStorage.setItem("authToken", jwt);
+
+          // Use custom event instead of direct refreshAuth call
+          window.dispatchEvent(new Event("auth:refresh"));
+        }
 
         // Redirect back to previous page or dashboard
         const returnTo = localStorage.getItem("githubReturnTo") || "/dashboard";
+        localStorage.removeItem("githubReturnTo");
         navigate(returnTo);
       } catch (err) {
         console.error("GitHub authentication error:", err);
@@ -31,7 +44,7 @@ export default function GitHubCallback() {
     };
 
     processCallback();
-  }, [location, navigate]);
+  }, [location, navigate]); // Remove refreshAuth from dependencies
 
   if (loading) {
     return (

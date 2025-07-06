@@ -15,7 +15,7 @@ export default function CreateRepositoryModal({
   const [description, setDescription] = useState("");
   const [isPrivate, setIsPrivate] = useState(false);
 
-  // Update handleSubmit to verify token before use
+  // Update handleSubmit to use token as query parameter
   const handleSubmit = async (e) => {
     e.preventDefault();
 
@@ -35,59 +35,30 @@ export default function CreateRepositoryModal({
         return;
       }
 
-      // Verify token before using it
-      try {
-        const verifyResponse = await api.get("/api/github/verify-token", {
-          headers: {
-            Authorization: `Bearer ${token}`, // Change from token to Bearer
-          },
-        });
-
-        if (!verifyResponse.data.valid) {
-          localStorage.removeItem("githubToken");
-          setError(
-            "Your GitHub session has expired. Please reconnect your account."
-          );
-          return;
-        }
-      } catch (verifyErr) {
-        localStorage.removeItem("githubToken");
-        setError(
-          "GitHub authentication failed. Please reconnect your account."
-        );
-        return;
-      }
-
-      console.log("Creating repository:", {
-        name,
-        description,
-        isPrivate,
-        folderId,
-      });
-
+      // Create the repository
       const { data } = await api.post(
-        "/api/github/repos",
+        `/api/github/repos?token=${encodeURIComponent(token)}`,
         {
           name,
           description,
           isPrivate,
           folderId,
-        },
-        {
-          headers: {
-            Authorization: `Bearer ${token}`,
-          },
         }
       );
 
-      console.log("Repository created successfully:", data);
-
-      if (onSuccess) {
-        onSuccess(data.repository);
-      }
+      onSuccess(data.repository);
+      onClose();
     } catch (err) {
       console.error("Repository creation error:", err);
-      setError(err.response?.data?.message || "Failed to create repository");
+      if (err.response?.status === 401) {
+        setError(
+          "GitHub authentication failed. Please reconnect your account."
+        );
+      } else if (err.response?.status === 409) {
+        setError("A repository with this name already exists");
+      } else {
+        setError(err.response?.data?.message || "Failed to create repository");
+      }
     } finally {
       setLoading(false);
     }

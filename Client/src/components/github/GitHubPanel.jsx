@@ -17,6 +17,7 @@ import api from "../../lib/api";
 import { isGitHubAuthenticated, initGitHubAuth } from "../../lib/githubAuth";
 import CreateRepositoryModal from "./CreateRepositoryModal";
 import InitRepositoryModal from "./InitRepositoryModal";
+import PublishRepositoryModal from "./PublishRepositoryModal";
 
 export default function GitHubPanel({
   folderId,
@@ -38,10 +39,52 @@ export default function GitHubPanel({
   const [needsInitialization, setNeedsInitialization] = useState(false); // Add this state variable
   const [repoFiles, setRepoFiles] = useState([]); // Add this state to the top of your component
   const [showInitModal, setShowInitModal] = useState(false); // Add state for initialization modal
+  const [showPublishModal, setShowPublishModal] = useState(false);
+  const [repoStatus, setRepoStatus] = useState(null);
+  const [folder, setFolder] = useState(null); // Add this to your useState declarations, near the top of the component
 
   // Add a ref to track the last change timestamp
   const lastChangeRef = useRef(Date.now());
 
+  // Update the useEffect that runs when the component mounts
+  useEffect(() => {
+    // First, check if there's a token with valid format before trying to verify
+    const token = localStorage.getItem("githubToken");
+
+    // If no token or token doesn't have GitHub format, don't even try to verify
+    if (!token || !token.startsWith("gho_")) {
+      console.log("No valid GitHub token format found, clearing if needed");
+      localStorage.removeItem("githubToken"); // Ensure it's removed
+      setIsAuthenticated(false);
+      return; // Exit early
+    }
+
+    // Only proceed with verification if we have a token that looks valid
+    const checkTokenValidity = async () => {
+      try {
+        // Try to verify the token
+        const response = await api.get(
+          `/api/github/verify-token?token=${encodeURIComponent(token)}`
+        );
+
+        if (response.data.valid) {
+          setIsAuthenticated(true);
+        } else {
+          console.log("Token verification failed, clearing token");
+          localStorage.removeItem("githubToken");
+          setIsAuthenticated(false);
+        }
+      } catch (err) {
+        console.log("Token verification failed, clearing token");
+        localStorage.removeItem("githubToken");
+        setIsAuthenticated(false);
+      }
+    };
+
+    checkTokenValidity();
+  }, []);
+
+  // Then update the existing useEffect to only fetch data if we have a valid token
   useEffect(() => {
     if (isAuthenticated && folderId) {
       fetchRepositoryInfo();
@@ -81,34 +124,58 @@ export default function GitHubPanel({
   const verifyAndRefreshToken = async () => {
     try {
       const token = localStorage.getItem("githubToken");
+
+      // Don't even try if no token exists
       if (!token) {
         setIsAuthenticated(false);
         return false;
       }
 
-      // FIXED: Send as query parameter, not in Authorization header
-      const response = await api.get(
-        `/api/github/verify-token?token=${encodeURIComponent(token)}`
-      );
-
-      if (response.data.valid) {
-        setIsAuthenticated(true);
-        return true;
-      } else {
+      // Skip verification if token format is invalid
+      if (!token.startsWith("gho_")) {
         localStorage.removeItem("githubToken");
         setIsAuthenticated(false);
-        setError("GitHub token expired. Please reconnect your account.");
+        return false;
+      }
+
+      try {
+        const response = await api.get(
+          `/api/github/verify-token?token=${encodeURIComponent(token)}`
+        );
+
+        if (response.data.valid) {
+          console.log(
+            "Token verified successfully for:",
+            response.data.user?.login
+          );
+          setIsAuthenticated(true);
+          return true;
+        } else {
+          localStorage.removeItem("githubToken");
+          setIsAuthenticated(false);
+          return false;
+        }
+      } catch (networkErr) {
+        console.error("Network error during token verification:", networkErr);
+
+        // CRITICAL FIX: Check if it's a 401 Unauthorized error and remove token
+        if (networkErr.response?.status === 401) {
+          console.log("401 Unauthorized error, clearing token");
+          localStorage.removeItem("githubToken");
+          setIsAuthenticated(false);
+        }
+
         return false;
       }
     } catch (err) {
       console.error("Token verification failed:", err);
       localStorage.removeItem("githubToken");
       setIsAuthenticated(false);
-      setError("GitHub authentication failed. Please reconnect your account.");
       return false;
     }
   };
 
+  // Modify the fetchRepositoryInfo function
   const fetchRepositoryInfo = async () => {
     if (!(await verifyAndRefreshToken())) {
       return;
@@ -116,7 +183,11 @@ export default function GitHubPanel({
 
     try {
       setLoading(true);
+      const token = localStorage.getItem("githubToken");
       const { data } = await api.get(`/api/folders/${folderId}`);
+
+      // Set folder data
+      setFolder(data);
 
       if (data.githubRepo) {
         setRepository(data.githubRepo);
@@ -129,50 +200,39 @@ export default function GitHubPanel({
     }
   };
 
-  // Update the fetchStatus function
+  // Modify the fetchStatus function
   const fetchStatus = async () => {
+    // Don't attempt to get status if we're not authenticated yet
     if (!isAuthenticated || !folderId) {
       setStatus(null);
       return;
     }
 
-    // Verify we have a GitHub token before making the request
+    // Double-check if we have a GitHub token before making the API call
     const token = localStorage.getItem("githubToken");
     if (!token) {
-      console.log("No GitHub token found, initiating GitHub auth");
+      console.log("No GitHub token found for status check");
       setNeedsInitialization(true);
-      setError("GitHub authentication required");
-      return;
+      return; // Don't show error, just return silently
     }
 
     try {
       console.log("Fetching git status for folder:", folderId);
 
-      const { data } = await api.get(`/api/github/status/${folderId}`, {
-        headers: {
-          Authorization: `Bearer ${token}`, // Change from token to Bearer
-        },
-        params: { t: Date.now() },
-      });
+      // Use query parameter for token
+      const { data } = await api.get(
+        `/api/github/status/${folderId}?token=${encodeURIComponent(token)}`
+      );
 
       console.log("Git status response:", data);
       setStatus(data);
       setError(null);
     } catch (err) {
-      console.error("Failed to fetch Git status:", err);
-
+      // Handle error but don't show to user unless they've attempted to connect
       if (err.response?.status === 401) {
-        setError(
-          "GitHub authentication expired. Please reconnect your GitHub account."
-        );
-        // Clear the invalid token
+        // Just clear the token, don't show error message yet
         localStorage.removeItem("githubToken");
         setIsAuthenticated(false);
-      } else if (err.response?.status === 404) {
-        setNeedsInitialization(true);
-        setError("No GitHub repository connected to this project");
-      } else {
-        setError("Failed to get repository status");
       }
     }
   };
@@ -311,6 +371,25 @@ export default function GitHubPanel({
     }, 1000);
   };
 
+  // Add this function to handle successful publishing
+  const handlePublishSuccess = (data) => {
+    setShowPublishModal(false);
+
+    if (data.repository) {
+      setRepository(data.repository);
+    }
+
+    if (data.status) {
+      setStatus(data.status);
+    }
+
+    // Refresh after a short delay
+    setTimeout(() => {
+      fetchRepositoryInfo();
+      fetchStatus();
+    }, 1000);
+  };
+
   const syncFilesToRepo = async () => {
     try {
       setLoading(true);
@@ -345,8 +424,79 @@ export default function GitHubPanel({
     }
   };
 
-  // Render different content based on connection status
+  // Update the component to use the new VS Code-like flow
+
+  // Add this function before the renderContent function
+
+  // Add this function to handle local initialization
+  const handleLocalInit = async () => {
+    try {
+      setLoading(true);
+      setError(null);
+
+      const token = localStorage.getItem("githubToken");
+      if (!token) {
+        setError("GitHub authentication required");
+        setLoading(false);
+        return;
+      }
+
+      console.log("Initializing local Git repository for folder:", folderId);
+
+      const response = await api.post(
+        `/api/github/local-init/${folderId}`,
+        {},
+        {
+          headers: {
+            Authorization: `Bearer ${token}`,
+          },
+        }
+      );
+
+      console.log("Local repository initialization response:", response.data);
+
+      if (response.data.isGitRepo) {
+        // IMPORTANT: Set repoStatus state to mark initialization
+        setRepoStatus("initialized");
+      }
+
+      if (response.data.status) {
+        setStatus(response.data.status);
+      }
+
+      // Refresh after initialization
+      fetchStatus();
+
+      // Notify parent component if callback provided
+      if (onInitializeRepo) {
+        onInitializeRepo(response.data);
+      }
+    } catch (err) {
+      console.error("Failed to initialize local repository:", err);
+      setError(
+        err.response?.data?.message || "Failed to initialize local repository"
+      );
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  // Update the renderContent function to display the proper workflow steps
   const renderContent = () => {
+    // Add this debug log
+    console.log("Current status object:", status);
+    console.log("gitInitialized value:", status?.isGitRepo === true);
+    console.log("repoStatus:", repoStatus);
+
+    const hasChanges =
+      status &&
+      ((status.modified && status.modified.length > 0) ||
+        (status.not_added && status.not_added.length > 0) ||
+        (status.deleted && status.deleted.length > 0) ||
+        (status.created && status.created.length > 0) ||
+        (status.renamed && status.renamed.length > 0) ||
+        (status.conflicted && status.conflicted.length > 0));
+
     if (loading) {
       return (
         <div className="flex items-center justify-center h-64">
@@ -363,228 +513,235 @@ export default function GitHubPanel({
       );
     }
 
-    if (!repository) {
+    // If not authenticated with GitHub, show connect button
+    if (!isAuthenticated) {
       return (
         <div className="flex flex-col items-center justify-center h-64 p-4">
-          <FiGitBranch size={48} className="text-slate-400 mb-4" />
+          <FiGithub size={48} className="text-slate-400 mb-4" />
           <h3 className="text-slate-200 text-lg font-medium mb-2">
-            Initialize Repository
+            Connect to GitHub
           </h3>
           <p className="text-slate-400 text-sm text-center mb-4">
-            Your GitHub account is connected. Now you need to create a
-            repository for this project.
+            Connect your GitHub account to enable Git version control for this
+            project.
           </p>
           <button
-            onClick={handleConnectRepo}
+            onClick={() => initGitHubAuth()}
             className="px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700 flex items-center gap-2"
           >
-            <FiPlus /> Create New Repository
+            <FiGithub /> Connect GitHub Account
           </button>
         </div>
       );
     }
 
-    // Handle the case when we need initialization but we have repository details
-    if (
-      needsInitialization ||
-      (status?.needsInitialization === true && !repository?.fullName)
-    ) {
+    // Check if we have a repository already initialized
+    if (repository?.isInitialized) {
+      // Show the existing repository UI with changes, commit options, etc.
       return (
-        <div className="flex flex-col items-center justify-center h-64 p-4">
-          <FiGitBranch size={48} className="text-slate-400 mb-4" />
-          <h3 className="text-slate-200 text-lg font-medium mb-2">
-            Connect GitHub Repository
-          </h3>
-          <p className="text-slate-400 text-sm text-center mb-4">
-            To use Git version control, you need to first create a GitHub
-            repository and then initialize it.
-          </p>
-          <div className="flex flex-col gap-3">
+        <div className="p-4">
+          {/* Repository info */}
+          <div className="mb-6">
+            <div className="flex items-center gap-2 mb-2">
+              <FiGitBranch className="text-blue-500" />
+              <h3 className="text-lg font-medium text-white">
+                {repository.name}
+              </h3>
+            </div>
+            <p className="text-sm text-slate-400">
+              Connected to {repository.owner}/{repository.name}
+            </p>
+            {repository.lastSynced && (
+              <p className="text-xs text-slate-500 mt-1">
+                Last synced: {new Date(repository.lastSynced).toLocaleString()}
+              </p>
+            )}
+          </div>
+
+          {/* Changes section */}
+          <div className="mb-4">
+            <h4 className="text-sm font-medium text-slate-300 mb-2">Changes</h4>
+
+            {hasChanges ? (
+              <div className="text-sm text-slate-400">
+                {/* Modified files */}
+                {(status?.modified || []).length > 0 && (
+                  <div className="mb-3">
+                    <h5 className="text-xs font-medium text-slate-300 mb-1">
+                      Modified
+                    </h5>
+                    {(status?.modified || []).map((file) => (
+                      <div
+                        key={file}
+                        className="flex items-center py-1 text-blue-400"
+                      >
+                        <span className="ml-2">{file}</span>
+                      </div>
+                    ))}
+                  </div>
+                )}
+
+                {/* New files */}
+                {(status?.not_added || []).length > 0 && (
+                  <div className="mb-3">
+                    <h5 className="text-xs font-medium text-slate-300 mb-1">
+                      New Files
+                    </h5>
+                    {(status?.not_added || []).map((file) => (
+                      <div
+                        key={file}
+                        className="flex items-center py-1 text-green-400"
+                      >
+                        <span className="ml-2">{file}</span>
+                      </div>
+                    ))}
+                  </div>
+                )}
+
+                {/* Deleted files */}
+                {(status?.deleted || []).length > 0 && (
+                  <div className="mb-3">
+                    <h5 className="text-xs font-medium text-slate-300 mb-1">
+                      Deleted
+                    </h5>
+                    {(status?.deleted || []).map((file) => (
+                      <div
+                        key={file}
+                        className="flex items-center py-1 text-red-400"
+                      >
+                        <span className="ml-2">{file}</span>
+                      </div>
+                    ))}
+                  </div>
+                )}
+
+                {/* Other change types if needed */}
+                {(status?.created || []).length > 0 && (
+                  <div className="mb-3">
+                    <h5 className="text-xs font-medium text-slate-300 mb-1">
+                      Created
+                    </h5>
+                    {(status?.created || []).map((file) => (
+                      <div
+                        key={file}
+                        className="flex items-center py-1 text-green-400"
+                      >
+                        <span className="ml-2">{file}</span>
+                      </div>
+                    ))}
+                  </div>
+                )}
+
+                {/* Renamed files */}
+                {(status?.renamed || []).length > 0 && (
+                  <div className="mb-3">
+                    <h5 className="text-xs font-medium text-slate-300 mb-1">
+                      Renamed
+                    </h5>
+                    {(status?.renamed || []).map((file) => (
+                      <div
+                        key={`${file.from}-${file.to}`}
+                        className="flex items-center py-1 text-blue-400"
+                      >
+                        <span className="ml-2">
+                          {file.from} → {file.to}
+                        </span>
+                      </div>
+                    ))}
+                  </div>
+                )}
+
+                {/* Conflicted files */}
+                {(status?.conflicted || []).length > 0 && (
+                  <div className="mb-3">
+                    <h5 className="text-xs font-medium text-slate-300 mb-1">
+                      Conflicts
+                    </h5>
+                    {(status?.conflicted || []).map((file) => (
+                      <div
+                        key={file}
+                        className="flex items-center py-1 text-yellow-400"
+                      >
+                        <span className="ml-2">{file}</span>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            ) : (
+              <div className="text-sm text-slate-400 p-3 bg-slate-800/50 rounded-md">
+                No changes detected in your project files
+              </div>
+            )}
+          </div>
+
+          {/* Commit section */}
+          <div className="mb-4">
+            <h4 className="text-sm font-medium text-slate-300 mb-2">Commit</h4>
+            <div className="mb-3">
+              <textarea
+                value={commitMessage}
+                onChange={(e) => setCommitMessage(e.target.value)}
+                className="w-full bg-slate-800 text-white rounded-md border border-slate-700 p-2 text-sm"
+                placeholder="Commit message"
+                rows={2}
+              ></textarea>
+            </div>
             <button
-              onClick={handleConnectRepo}
-              className="px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700 flex items-center gap-2"
+              onClick={handleCommit}
+              disabled={!hasChanges}
+              className="w-full py-2 bg-blue-600 text-white rounded-md text-sm font-medium hover:bg-blue-700 transition-colors flex items-center justify-center gap-2 disabled:bg-slate-700 disabled:text-slate-400 disabled:cursor-not-allowed"
             >
-              <FiPlus /> Step 1: Create Repository
-            </button>
-            <button
-              onClick={handleInitializeRepo}
-              disabled={!repository?.fullName}
-              className="px-4 py-2 bg-blue-500 text-white rounded hover:bg-blue-600 flex items-center gap-2 
-                        disabled:bg-slate-700 disabled:cursor-not-allowed disabled:opacity-60"
-            >
-              <FiGitBranch /> Step 2: Initialize Repository
+              <FiGitBranch /> Commit & Push Changes
             </button>
           </div>
         </div>
       );
     }
 
-    // Make sure all collections are defined before accessing their length
-    const hasChanges =
-      (status?.modified || []).length > 0 ||
-      (status?.not_added || []).length > 0 ||
-      (status?.deleted || []).length > 0 ||
-      (status?.created || []).length > 0 ||
-      (status?.renamed || []).length > 0 ||
-      (status?.conflicted || []).length > 0;
+    // VS Code-like workflow with two steps
+    const gitInitialized =
+      status?.isGitRepo === true ||
+      status?.isNewRepo === true ||
+      repoStatus === "initialized" ||
+      (status && !status.needsInitialization);
+
+    console.log("Final gitInitialized decision:", gitInitialized);
 
     return (
-      <div className="p-4">
-        {/* Repository info */}
-        <div className="mb-6">
-          <div className="flex items-center gap-2 mb-2">
-            <FiGitBranch className="text-blue-500" />
-            <h3 className="text-lg font-medium text-white">
-              {repository.name}
-            </h3>
-          </div>
-          <p className="text-sm text-slate-400">
-            Connected to {repository.owner}/{repository.name}
-          </p>
-          {repository.lastSynced && (
-            <p className="text-xs text-slate-500 mt-1">
-              Last synced: {new Date(repository.lastSynced).toLocaleString()}
+      <div className="flex flex-col items-center justify-center h-64 p-4">
+        <FiGitBranch size={48} className="text-slate-400 mb-4" />
+        <h3 className="text-slate-200 text-lg font-medium mb-2">
+          Git Version Control
+        </h3>
+
+        {!gitInitialized ? (
+          // Step 1: Initialize local repository
+          <>
+            <p className="text-slate-400 text-sm text-center mb-4">
+              Start by initializing a local Git repository for this project
             </p>
-          )}
-        </div>
-
-        {/* Changes section */}
-        <div className="mb-4">
-          <h4 className="text-sm font-medium text-slate-300 mb-2">Changes</h4>
-
-          {hasChanges ? (
-            <div className="text-sm text-slate-400">
-              {/* Modified files */}
-              {(status?.modified || []).length > 0 && (
-                <div className="mb-3">
-                  <h5 className="text-xs font-medium text-slate-300 mb-1">
-                    Modified
-                  </h5>
-                  {(status?.modified || []).map((file) => (
-                    <div
-                      key={file}
-                      className="flex items-center py-1 text-blue-400"
-                    >
-                      <span className="ml-2">{file}</span>
-                    </div>
-                  ))}
-                </div>
-              )}
-
-              {/* New files */}
-              {(status?.not_added || []).length > 0 && (
-                <div className="mb-3">
-                  <h5 className="text-xs font-medium text-slate-300 mb-1">
-                    New Files
-                  </h5>
-                  {(status?.not_added || []).map((file) => (
-                    <div
-                      key={file}
-                      className="flex items-center py-1 text-green-400"
-                    >
-                      <span className="ml-2">{file}</span>
-                    </div>
-                  ))}
-                </div>
-              )}
-
-              {/* Deleted files */}
-              {(status?.deleted || []).length > 0 && (
-                <div className="mb-3">
-                  <h5 className="text-xs font-medium text-slate-300 mb-1">
-                    Deleted
-                  </h5>
-                  {(status?.deleted || []).map((file) => (
-                    <div
-                      key={file}
-                      className="flex items-center py-1 text-red-400"
-                    >
-                      <span className="ml-2">{file}</span>
-                    </div>
-                  ))}
-                </div>
-              )}
-
-              {/* Other change types if needed */}
-              {(status?.created || []).length > 0 && (
-                <div className="mb-3">
-                  <h5 className="text-xs font-medium text-slate-300 mb-1">
-                    Created
-                  </h5>
-                  {(status?.created || []).map((file) => (
-                    <div
-                      key={file}
-                      className="flex items-center py-1 text-green-400"
-                    >
-                      <span className="ml-2">{file}</span>
-                    </div>
-                  ))}
-                </div>
-              )}
-
-              {/* Renamed files */}
-              {(status?.renamed || []).length > 0 && (
-                <div className="mb-3">
-                  <h5 className="text-xs font-medium text-slate-300 mb-1">
-                    Renamed
-                  </h5>
-                  {(status?.renamed || []).map((file) => (
-                    <div
-                      key={`${file.from}-${file.to}`}
-                      className="flex items-center py-1 text-blue-400"
-                    >
-                      <span className="ml-2">
-                        {file.from} → {file.to}
-                      </span>
-                    </div>
-                  ))}
-                </div>
-              )}
-
-              {/* Conflicted files */}
-              {(status?.conflicted || []).length > 0 && (
-                <div className="mb-3">
-                  <h5 className="text-xs font-medium text-slate-300 mb-1">
-                    Conflicts
-                  </h5>
-                  {(status?.conflicted || []).map((file) => (
-                    <div
-                      key={file}
-                      className="flex items-center py-1 text-yellow-400"
-                    >
-                      <span className="ml-2">{file}</span>
-                    </div>
-                  ))}
-                </div>
-              )}
-            </div>
-          ) : (
-            <div className="text-sm text-slate-400 p-3 bg-slate-800/50 rounded-md">
-              No changes detected in your project files
-            </div>
-          )}
-        </div>
-
-        {/* Commit section */}
-        <div className="mb-4">
-          <h4 className="text-sm font-medium text-slate-300 mb-2">Commit</h4>
-          <div className="mb-3">
-            <textarea
-              value={commitMessage}
-              onChange={(e) => setCommitMessage(e.target.value)}
-              className="w-full bg-slate-800 text-white rounded-md border border-slate-700 p-2 text-sm"
-              placeholder="Commit message"
-              rows={2}
-            ></textarea>
-          </div>
-          <button
-            onClick={handleCommit}
-            disabled={!hasChanges}
-            className="w-full py-2 bg-blue-600 text-white rounded-md text-sm font-medium hover:bg-blue-700 transition-colors flex items-center justify-center gap-2 disabled:bg-slate-700 disabled:text-slate-400 disabled:cursor-not-allowed"
-          >
-            <FiGitBranch /> Commit & Push Changes
-          </button>
-        </div>
+            <button
+              onClick={handleLocalInit}
+              className="px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700 flex items-center gap-2"
+            >
+              <FiGitBranch /> Initialize Git Repository
+            </button>
+          </>
+        ) : (
+          // Step 2: Publish to GitHub
+          <>
+            <p className="text-slate-400 text-sm text-center mb-4">
+              Local Git repository initialized. Now you can publish to GitHub.
+            </p>
+            <button
+              onClick={() => setShowPublishModal(true)}
+              className="px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700 flex items-center gap-2"
+            >
+              <FiGithub /> Publish to GitHub
+            </button>
+          </>
+        )}
       </div>
     );
   };
@@ -643,6 +800,15 @@ export default function GitHubPanel({
           repositoryName={repository?.name || ""}
           onClose={() => setShowInitModal(false)}
           onSuccess={handleInitSuccess}
+        />
+      )}
+
+      {showPublishModal && (
+        <PublishRepositoryModal
+          folderId={folderId}
+          folderName={folder?.name || "My Project"}
+          onClose={() => setShowPublishModal(false)}
+          onSuccess={handlePublishSuccess}
         />
       )}
     </>
