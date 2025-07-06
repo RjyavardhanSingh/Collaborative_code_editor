@@ -260,16 +260,47 @@ export default function GitHubPanel({
       setLoading(true);
       setError(null);
 
-      // Prepare file data for commit
-      const files = currentFiles.map((file) => ({
-        path: file.title,
-        content: file.content,
-      }));
+      // Get both tokens
+      const githubToken = localStorage.getItem("githubToken");
+      const authToken = localStorage.getItem("authToken");
 
-      console.log(
-        "Committing files:",
-        files.map((f) => f.path)
-      );
+      if (!githubToken) {
+        setError("GitHub authentication required");
+        setLoading(false);
+        return;
+      }
+
+      // Prepare file data for commit - use folder documents instead of currentFiles
+      let files = [];
+      try {
+        // Get all files from the server to ensure we have the latest content
+        const docsResponse = await api.get(
+          `/api/folders/${folderId}/documents`
+        );
+        files = docsResponse.data.map((doc) => ({
+          path: doc.title,
+          content: doc.content,
+        }));
+        console.log(
+          "Committing files:",
+          files.map((f) => f.path)
+        );
+      } catch (fetchErr) {
+        console.error("Error fetching documents:", fetchErr);
+        // Fallback to current files if fetch fails
+        files = currentFiles.map((file) => ({
+          path: file.title,
+          content: file.content,
+        }));
+      }
+
+      // Log request details for debugging
+      console.log("Sending commit request with:", {
+        folderId,
+        messageLength: commitMessage.length,
+        filesCount: files.length,
+        token: githubToken ? `${githubToken.substring(0, 8)}...` : "missing",
+      });
 
       const response = await api.post(
         "/api/github/commit",
@@ -280,33 +311,38 @@ export default function GitHubPanel({
         },
         {
           headers: {
-            Authorization: `Bearer ${localStorage.getItem("githubToken")}`,
+            // Send GitHub token as both Bearer and custom header
+            Authorization: `token ${githubToken}`,
+            "X-Github-Token": githubToken,
+            // Also send app token if available
+            ...(authToken && { "X-Auth-Token": authToken }),
           },
         }
       );
 
       console.log("Commit successful:", response.data);
       setCommitMessage("");
-      fetchStatus();
+
+      // Refresh status after successful commit
+      setTimeout(() => fetchStatus(), 500);
     } catch (err) {
       console.error("Commit error:", err);
 
-      // More user-friendly and detailed error message
+      // Detailed error message
       let errorMsg = "Failed to commit changes";
 
-      if (err.response?.data) {
-        const data = err.response.data;
-        errorMsg += `: ${data.message || ""}`;
+      if (err.response?.status === 401) {
+        errorMsg =
+          "Unauthorized, GitHub token failed. Please reconnect your account.";
+      } else if (err.response?.data?.message) {
+        errorMsg = `Failed to commit: ${err.response.data.message}`;
 
-        // Add Git command details if available
-        if (data.command) {
-          errorMsg += ` [Command: ${data.command}]`;
+        // Add Git details if available
+        if (err.response.data.errorDetails?.gitMessage) {
+          errorMsg += ` (${err.response.data.errorDetails.gitMessage})`;
         }
-
-        // Add Git error message if available
-        if (data.gitMessage) {
-          errorMsg += ` (${data.gitMessage})`;
-        }
+      } else if (err.message) {
+        errorMsg = err.message;
       }
 
       setError(errorMsg);

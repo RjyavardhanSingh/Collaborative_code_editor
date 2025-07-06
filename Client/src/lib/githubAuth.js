@@ -1,7 +1,4 @@
 import api from "./api";
-import fs from "fs/promises";
-import path from "path";
-import { safeGitOperation } from "./gitOperations"; // Adjust the import based on your project structure
 
 // Update the isGitHubAuthenticated function
 export const isGitHubAuthenticated = () => {
@@ -221,29 +218,3 @@ export const initializeLocalRepo = async (
     if (setLoading) setLoading(false);
   }
 };
-
-// Use the safe operation in publishToGitHub
-const repoPath = path.join(REPOS_DIR, folderId.toString());
-
-try {
-  await safeGitOperation(repoPath, async (git) => {
-    // First completely remove any existing Git setup
-    try {
-      await fs.rm(path.join(repoPath, ".git"), {
-        recursive: true,
-        force: true,
-      });
-    } catch (err) {
-      // Ignore errors if .git doesn't exist
-    }
-
-    // Initialize fresh repository
-    await git.init();
-    console.log("Initialized fresh Git repository");
-
-    // Rest of your Git operations...
-  });
-} catch (error) {
-  console.error("Error in Git operations:", error);
-  throw error;
-}
