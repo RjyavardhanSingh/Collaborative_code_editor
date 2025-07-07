@@ -489,7 +489,7 @@ export const commitChanges = async (req, res) => {
   }
 };
 
-// Fix the getStatus function to ensure Git only sees files in the repo directory
+// Replace the verbose logging in the getStatus function (around line 520-620)
 export const getStatus = async (req, res) => {
   const originalDir = process.cwd();
   try {
@@ -501,7 +501,6 @@ export const getStatus = async (req, res) => {
     }
 
     // Check if repository is initialized
-    // If folder.githubRepo is missing, this is a new project without a repository
     if (
       !folder.githubRepo ||
       !folder.githubRepo.fullName ||
@@ -526,8 +525,7 @@ export const getStatus = async (req, res) => {
 
     // Create a completely isolated repository path for this specific folder
     const repoPath = path.join(REPOS_DIR, folderId.toString());
-    console.log(`Using isolated repository path: ${repoPath}`);
-
+    
     // Ensure this directory exists and is a git repository
     try {
       // Make sure directory exists
@@ -540,9 +538,8 @@ export const getStatus = async (req, res) => {
         "[core]\n\trepositoryformatversion = 0\n\tfilemode = true\n\tbare = false\n\tlogallrefupdates = true"
       );
 
-      // CRITICAL FIX: Use process.chdir to change working directory
+      // Change working directory
       process.chdir(repoPath);
-      console.log("Changed working directory to:", repoPath);
 
       // Initialize Git with complete isolation
       const git = simpleGit({
@@ -563,18 +560,23 @@ export const getStatus = async (req, res) => {
       const isRepo = await git.checkIsRepo().catch(() => false);
       if (!isRepo) {
         await git.init();
-        console.log(`Initialized new Git repository at ${repoPath}`);
 
-        // Set up remote if we have repo info
+        // If folder.githubRepo exists, set up remote
         if (folder.githubRepo?.fullName) {
-          const token = req.headers.authorization?.split(" ")[1];
-          if (token) {
-            const remoteUrl = `https://oauth2:${token}@github.com/${folder.githubRepo.fullName}.git`;
-            try {
-              await git.addRemote("origin", remoteUrl);
-            } catch (e) {
-              // Remote might already exist
+          try {
+            // Try to get token from request
+            const token = req.headers.authorization?.split(" ")[1];
+            
+            if (token) {
+              const remoteUrl = `https://oauth2:${token}@github.com/${folder.githubRepo.fullName}.git`;
+              try {
+                await git.addRemote("origin", remoteUrl);
+              } catch (e) {
+                // Remote might already exist
+              }
             }
+          } catch (remoteErr) {
+            // Continue even if we can't set up the remote
           }
         }
 
@@ -591,9 +593,7 @@ export const getStatus = async (req, res) => {
 
       // Auto-update files in repo from database
       try {
-        console.log(`📝 Syncing database content to repository files...`);
         const documents = await Document.find({ folder: folderId });
-        console.log(`📄 Found ${documents.length} documents to sync`);
 
         // Force write all files from database
         for (const doc of documents) {
@@ -607,31 +607,24 @@ export const getStatus = async (req, res) => {
           try {
             const existingContent = await fs.readFile(filePath, "utf8");
             fileChanged = existingContent !== doc.content;
-            if (fileChanged) {
-              console.log(`🔄 Content changed for ${doc.title}`);
-            }
           } catch (err) {
-            console.log(`🆕 New file: ${doc.title}`);
+            // File doesn't exist, will create it
           }
 
           // Write the database content to the actual file
           if (fileChanged || !doc.content) {
             await fs.writeFile(filePath, doc.content || "");
-            console.log(`✏️ Updated file: ${filePath}`);
           }
         }
       } catch (syncErr) {
-        console.error(`❌ Auto-sync error: ${syncErr.message}`);
         // Continue even if sync fails - we still want to return status
       }
 
       // Force git to recognize the changes
       await git.add("--intent-to-add", ".");
 
-      // IMPORTANT: Get status with restricted search paths
-      // This prevents Git from detecting files outside the repo directory
+      // Get status with restricted search paths
       const status = await git.status(["."]);
-      console.log(`📊 Git status result for project folder only:`, status);
 
       // Clean up temp config
       try {
@@ -640,20 +633,18 @@ export const getStatus = async (req, res) => {
         // Ignore cleanup errors
       }
 
-      // IMPORTANT: Change directory back to original
+      // Change directory back to original
       process.chdir(originalDir);
 
       res.json(status);
     } catch (err) {
       // Make sure we change back to the original directory
       process.chdir(originalDir);
-      console.error("Error in getStatus:", err);
-      res.status(500).json({ message: err.message });
+      throw err;
     }
   } catch (error) {
     // Safety measure - ensure we always restore directory
     process.chdir(originalDir);
-    console.error("Error in getStatus:", error);
     res.status(500).json({ message: error.message });
   }
 };
@@ -675,12 +666,11 @@ export const syncFilesToRepo = async (req, res) => {
     }
 
     const repoPath = path.join(REPOS_DIR, folderId.toString());
-    console.log(`🔄 Syncing files to repository: ${repoPath}`);
 
     // Ensure directory exists
     await fs.mkdir(repoPath, { recursive: true });
 
-    // CRITICAL: Change to the repo directory first
+    // Change to the repo directory first
     process.chdir(repoPath);
 
     let changedFiles = 0;
@@ -705,7 +695,13 @@ export const syncFilesToRepo = async (req, res) => {
       changedFiles,
     });
   } catch (error) {
-    console.error("Error syncing files:", error);
+    // Always return to original directory
+    try {
+      process.chdir(process.env.PWD || originalDir);
+    } catch (e) {
+      // Ignore directory change errors
+    }
+    
     res.status(500).json({ message: error.message });
   }
 };
