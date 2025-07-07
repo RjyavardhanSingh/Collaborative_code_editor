@@ -12,6 +12,7 @@ import {
   FiDownload,
   FiGitMerge,
   FiGithub,
+  FiLock,
 } from "react-icons/fi";
 import api from "../../lib/api";
 import { isGitHubAuthenticated, initGitHubAuth } from "../../lib/githubAuth";
@@ -25,6 +26,7 @@ export default function GitHubPanel({
   refreshFiles,
   currentFiles = [],
   onInitializeRepo, // Receive the prop
+  userPermission, // Add this prop to receive user's permission level
 }) {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
@@ -277,10 +279,50 @@ export default function GitHubPanel({
         const docsResponse = await api.get(
           `/api/folders/${folderId}/documents`
         );
-        files = docsResponse.data.map((doc) => ({
-          path: doc.title,
-          content: doc.content,
-        }));
+
+        // REPLACE the problematic mapping code in handleCommit function (around lines 284-302)
+
+        // REPLACE this section in the handleCommit function
+        if (Array.isArray(docsResponse.data)) {
+          // Handle case where response is a direct array
+          files = docsResponse.data
+            .filter((doc) => doc != null) // Add this filter to remove null entries
+            .map((doc) => ({
+              path:
+                doc.title || `file-${Math.random().toString(36).substring(7)}`, // Add fallback
+              content: doc.content || "", // Add fallback for content too
+            }));
+        } else if (docsResponse.data && typeof docsResponse.data === "object") {
+          // Handle case where documents might be in a nested property
+          const documentsArray =
+            docsResponse.data.documents ||
+            docsResponse.data.files ||
+            Object.values(docsResponse.data);
+
+          if (Array.isArray(documentsArray)) {
+            files = documentsArray
+              .filter((doc) => doc != null) // Add this filter to remove null entries
+              .map((doc) => ({
+                path:
+                  doc.title ||
+                  `file-${Math.random().toString(36).substring(7)}`, // Add fallback
+                content: doc.content || "", // Add fallback for content too
+              }));
+          } else {
+            // Add more helpful error details
+            throw new Error(
+              `Could not find documents array in response: ${JSON.stringify(
+                docsResponse.data
+              )}`
+            );
+          }
+        } else {
+          // Add more helpful error details
+          throw new Error(
+            `Invalid response format from API: ${typeof docsResponse.data}`
+          );
+        }
+
         console.log(
           "Committing files:",
           files.map((f) => f.path)
@@ -780,6 +822,24 @@ export default function GitHubPanel({
         )}
       </div>
     );
+  };
+
+  // Early in the component, add this check
+  const renderPermissionError = () => {
+    if (userPermission !== "admin" && userPermission !== "owner") {
+      return (
+        <div className="flex flex-col items-center justify-center h-64 p-4">
+          <FiLock size={48} className="text-slate-400 mb-4" />
+          <h3 className="text-slate-200 text-lg font-medium mb-2">
+            GitHub Access Restricted
+          </h3>
+          <p className="text-slate-400 text-sm text-center mb-4">
+            Only project owners and administrators can access GitHub features.
+          </p>
+        </div>
+      );
+    }
+    return null;
   };
 
   return (

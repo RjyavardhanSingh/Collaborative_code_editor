@@ -301,6 +301,32 @@ export const getUserRepos = async (req, res) => {
   }
 };
 
+
+
+// Add permission check to all GitHub-related endpoints
+
+// Helper function to check if user has admin rights
+const hasAdminRights = async (folderId, userId) => {
+  const folder = await Folder.findById(folderId);
+
+  if (!folder) {
+    return false;
+  }
+
+  // Check if user is owner
+  if (folder.owner.toString() === userId.toString()) {
+    return true;
+  }
+
+  // Check if user is admin collaborator
+  const collaborator = folder.collaborators.find(
+    (c) => c.user.toString() === userId.toString()
+  );
+
+  return collaborator && collaborator.permission === "admin";
+};
+
+// Then modify all GitHub endpoints to use this check
 export const commitChanges = async (req, res) => {
   const originalDir = process.cwd();
 

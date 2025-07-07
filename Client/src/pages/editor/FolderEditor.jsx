@@ -969,6 +969,38 @@ export default function FolderEditor() {
     };
   }, [id, currentuser]);
 
+  // Add these permission functions EARLY in the component
+  const hasWritePermission = () => {
+    if (!folder || !currentuser) return false;
+
+    // Check if user is owner
+    if (folder.owner === currentuser._id) return true;
+
+    // Check if user is a collaborator with write permission
+    const collaborator = folder.collaborators?.find(
+      (c) => c.user === currentuser._id || c.user?._id === currentuser._id
+    );
+
+    return (
+      collaborator?.permission === "write" ||
+      collaborator?.permission === "admin"
+    );
+  };
+
+  const hasGitHubPermission = () => {
+    if (!folder || !currentuser) return false;
+
+    // Check if user is owner
+    if (folder.owner === currentuser._id) return true;
+
+    // Only admin collaborators have GitHub permissions
+    const collaborator = folder.collaborators?.find(
+      (c) => c.user === currentuser._id || c.user?._id === currentuser._id
+    );
+
+    return collaborator?.permission === "admin";
+  };
+
   // Determine the navbar actions based on context
   const navbarActions = (
     <>
@@ -1099,35 +1131,27 @@ export default function FolderEditor() {
 
       {/* GitHub panel toggle */}
       <button
-        onClick={() => setIsGitHubPanelOpen(!isGitHubPanelOpen)}
+        onClick={() =>
+          hasGitHubPermission() && setIsGitHubPanelOpen(!isGitHubPanelOpen)
+        }
         className={`p-2 rounded ${
-          isGitHubPanelOpen
+          isGitHubPanelOpen && hasGitHubPermission()
             ? "bg-blue-600 text-white"
-            : "text-slate-400 hover:text-white hover:bg-slate-700"
+            : hasGitHubPermission()
+            ? "text-slate-400 hover:text-white hover:bg-slate-700"
+            : "text-slate-600 opacity-50 cursor-not-allowed"
         }`}
-        title="Git Version Control"
+        title={
+          hasGitHubPermission()
+            ? "Git Version Control"
+            : "Git access requires admin permissions"
+        }
+        disabled={!hasGitHubPermission()}
       >
         <FiGitBranch />
       </button>
     </>
   );
-
-  const hasWritePermission = () => {
-    if (!folder || !currentuser) return false;
-
-    // Check if user is owner
-    if (folder.owner === currentuser._id) return true;
-
-    // Check if user is a collaborator with write permission
-    const collaborator = folder.collaborators?.find(
-      (c) => c.user === currentuser._id || c.user?._id === currentuser._id
-    );
-
-    return (
-      collaborator?.permission === "write" ||
-      collaborator?.permission === "admin"
-    );
-  };
 
   // Add an effect to check GitHub connection status
   useEffect(() => {
@@ -1302,13 +1326,23 @@ export default function FolderEditor() {
 
             {/* GitHub panel toggle */}
             <button
-              onClick={() => setIsGitHubPanelOpen(!isGitHubPanelOpen)}
+              onClick={() =>
+                hasGitHubPermission() &&
+                setIsGitHubPanelOpen(!isGitHubPanelOpen)
+              }
               className={`p-2 rounded ${
-                isGitHubPanelOpen
+                isGitHubPanelOpen && hasGitHubPermission()
                   ? "bg-blue-600 text-white"
-                  : "text-slate-400 hover:text-white hover:bg-slate-700"
+                  : hasGitHubPermission()
+                  ? "text-slate-400 hover:text-white hover:bg-slate-700"
+                  : "text-slate-600 opacity-50 cursor-not-allowed"
               }`}
-              title="Git Version Control"
+              title={
+                hasGitHubPermission()
+                  ? "Git Version Control"
+                  : "Git access requires admin permissions"
+              }
+              disabled={!hasGitHubPermission()}
             >
               <FiGitBranch />
             </button>
@@ -1540,7 +1574,7 @@ export default function FolderEditor() {
       )}
 
       {/* GitHub panel - add this at the end of your return */}
-      {isGitHubPanelOpen && (
+      {isGitHubPanelOpen && hasGitHubPermission() && (
         <GitHubPanel
           folderId={folder?._id}
           onClose={() => setIsGitHubPanelOpen(false)}
@@ -1551,7 +1585,47 @@ export default function FolderEditor() {
             }
           }}
           currentFiles={[selectedFile].filter(Boolean)}
+          userPermission={
+            folder?.owner === currentuser?._id
+              ? "owner"
+              : folder?.collaborators?.find(
+                  (c) =>
+                    c.user === currentuser?._id ||
+                    c.user?._id === currentuser?._id
+                )?.permission || "read"
+          }
         />
+      )}
+
+      {/* Add a message for non-admin users who try to access GitHub panel */}
+      {isGitHubPanelOpen && !hasGitHubPermission() && (
+        <motion.div
+          initial={{ x: 300, opacity: 0 }}
+          animate={{ x: 0, opacity: 1 }}
+          exit={{ x: 300, opacity: 0 }}
+          className="absolute top-0 right-0 h-full w-[350px] border-l border-slate-700 bg-slate-800 flex flex-col shadow-xl z-10"
+        >
+          <div className="p-4 border-b border-slate-700 flex justify-between items-center">
+            <h2 className="text-white font-bold flex items-center gap-2">
+              <FiGitBranch /> Git Version Control
+            </h2>
+            <button
+              onClick={() => setIsGitHubPanelOpen(false)}
+              className="text-slate-400 hover:text-white"
+            >
+              <FiX />
+            </button>
+          </div>
+          <div className="flex flex-col items-center justify-center h-64 p-4">
+            <FiLock size={48} className="text-slate-400 mb-4" />
+            <h3 className="text-slate-200 text-lg font-medium mb-2">
+              GitHub Access Restricted
+            </h3>
+            <p className="text-slate-400 text-sm text-center mb-4">
+              Only project owners and administrators can access GitHub features.
+            </p>
+          </div>
+        </motion.div>
       )}
 
       {/* Create repository modal - add this at the end of your return */}
