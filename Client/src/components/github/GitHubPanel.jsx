@@ -280,17 +280,15 @@ export default function GitHubPanel({
           `/api/folders/${folderId}/documents`
         );
 
-        // REPLACE the problematic mapping code in handleCommit function (around lines 284-302)
+        // Fix the problematic document mapping code in handleCommit function
 
-        // REPLACE this section in the handleCommit function
         if (Array.isArray(docsResponse.data)) {
           // Handle case where response is a direct array
           files = docsResponse.data
-            .filter((doc) => doc != null) // Add this filter to remove null entries
+            .filter((doc) => doc != null && doc.title) // Only include docs with actual titles
             .map((doc) => ({
-              path:
-                doc.title || `file-${Math.random().toString(36).substring(7)}`, // Add fallback
-              content: doc.content || "", // Add fallback for content too
+              path: doc.title,
+              content: doc.content || "", // Still keep content fallback
             }));
         } else if (docsResponse.data && typeof docsResponse.data === "object") {
           // Handle case where documents might be in a nested property
@@ -301,12 +299,10 @@ export default function GitHubPanel({
 
           if (Array.isArray(documentsArray)) {
             files = documentsArray
-              .filter((doc) => doc != null) // Add this filter to remove null entries
+              .filter((doc) => doc != null && doc.title) // Only include docs with actual titles
               .map((doc) => ({
-                path:
-                  doc.title ||
-                  `file-${Math.random().toString(36).substring(7)}`, // Add fallback
-                content: doc.content || "", // Add fallback for content too
+                path: doc.title,
+                content: doc.content || "", // Still keep content fallback
               }));
           } else {
             // Add more helpful error details
