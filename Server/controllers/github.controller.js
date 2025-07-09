@@ -337,10 +337,6 @@ export const commitChanges = async (req, res) => {
       return res.status(400).json({ message: "Commit message is required" });
     }
 
-    console.log(
-      `Committing changes to folder ${folderId} with ${files.length} files`
-    );
-
     // Find folder to verify it exists and has GitHub repo connected
     const folder = await Folder.findById(folderId);
     if (!folder || !folder.githubRepo) {
@@ -351,10 +347,10 @@ export const commitChanges = async (req, res) => {
 
     // Get GitHub token from multiple possible sources
     let token =
-      req.headers["x-github-token"] || // Try custom header first
+      req.headers["x-github-token"] || 
       (req.headers.authorization?.startsWith("token ") &&
-        req.headers.authorization.substring(6)) || // Then try 'token' prefix
-      req.headers.authorization?.split(" ")[1]; // Finally try Bearer token
+        req.headers.authorization.substring(6)) || 
+      req.headers.authorization?.split(" ")[1];
 
     if (!token) {
       return res.status(401).json({
@@ -368,7 +364,6 @@ export const commitChanges = async (req, res) => {
 
     // CRITICAL: Change to repository directory BEFORE git operations
     process.chdir(repoPath);
-    console.log(`Changed working directory to: ${process.cwd()}`);
 
     // Use safe git operation with isolated environment
     const git = simpleGit({
@@ -383,28 +378,33 @@ export const commitChanges = async (req, res) => {
     });
 
     // Configure Git user
-    console.log("Configuring Git user");
     await git.addConfig("user.name", "DevUnity User");
     await git.addConfig("user.email", "user@devunity.com");
 
+    // CRITICAL FIX: If files array is empty, fetch all documents from database
+    let filesToCommit = [...(files || [])];
+    if (!filesToCommit.length) {
+      const documents = await Document.find({ folder: folderId });
+      filesToCommit = documents.map(doc => ({
+        path: doc.title,
+        content: doc.content || ""
+      }));
+    }
+
     // Write files
-    console.log(`Processing ${files.length} files for commit`);
-    for (const file of files) {
+    for (const file of filesToCommit) {
       if (!file.path || file.content === undefined) continue;
 
       const filePath = file.path;
       await fs.mkdir(path.dirname(filePath), { recursive: true });
       await fs.writeFile(filePath, file.content || "");
-      console.log(`Updated ${filePath}`);
     }
 
     // Stage files with force
-    console.log("Staging files");
     await git.add(".");
 
     // Check status before committing
     const status = await git.status();
-    console.log("Git status before commit:", status);
 
     if (status.files.length === 0) {
       process.chdir(originalDir);
@@ -412,46 +412,27 @@ export const commitChanges = async (req, res) => {
     }
 
     // Commit changes
-    console.log("Committing changes with message:", message);
     const commitResult = await git.commit(message);
-    console.log("Commit successful:", commitResult);
 
     // Try to push to remote
     try {
-      console.log("Pushing to remote");
       const currentBranch = (await git.branch()).current || "master";
-      console.log(`Current branch is: ${currentBranch}`);
-
-      // Test remote connection
-      console.log("Testing remote connection");
       const remotes = await git.getRemotes(true);
-      console.log("Remotes:", remotes);
 
       if (remotes.length === 0) {
         // Add remote if not already set
         const remoteUrl = `https://oauth2:${token}@github.com/${folder.githubRepo.fullName}.git`;
         await git.addRemote("origin", remoteUrl);
-        console.log("Added missing remote origin");
       }
 
       // Push with explicit reference
       await git.push(["origin", currentBranch]);
-      console.log("Push successful");
     } catch (pushErr) {
-      console.error("Push error:", pushErr.message);
-
       try {
-        // Get more details on the failure
-        const remoteUrl = await git.remote(["get-url", "origin"]);
-        console.log("Remote URL:", remoteUrl);
-
         // Try force push
-        console.log("Attempting force push");
         const currentBranch = (await git.branch()).current || "master";
         await git.push(["-f", "origin", currentBranch]);
-        console.log("Force push successful");
       } catch (forcePushErr) {
-        console.error("Force push also failed:", forcePushErr.message);
         // We'll still consider the operation successful since the commit worked
       }
     }
@@ -476,7 +457,6 @@ export const commitChanges = async (req, res) => {
       // Ignore error changing back
     }
 
-    console.error("💥 Error in commitChanges:", error);
     res.status(500).json({
       message: error.message,
       errorDetails: {
