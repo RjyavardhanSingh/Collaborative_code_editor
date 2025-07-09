@@ -17,8 +17,13 @@ const wss = new WebSocketServer({
 const documentClients = new Map();
 
 wss.on("connection", (ws, req) => {
-  const pathname = url.parse(req.url).pathname;
-  const match = pathname.match(/\/cursors\/([^\/]+)/);
+  // Use URL object for more reliable parsing
+  const parsedUrl = new URL(req.url, `http://${req.headers.host}`);
+  const pathname = parsedUrl.pathname;
+
+  // Match document ID from various possible path formats
+  const match =
+    pathname.match(/\/cursors\/([^\/]+)/) || pathname.match(/\/([^\/]+)/);
 
   if (!match) {
     ws.close(1000, "Invalid document ID in connection URL");
