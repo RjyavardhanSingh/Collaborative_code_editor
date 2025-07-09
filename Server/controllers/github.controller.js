@@ -1305,21 +1305,34 @@ export const publishToGitHub = async (req, res) => {
           const currentBranch = (await git.branch()).current || "main";
           console.log("Current branch:", currentBranch);
 
-          // Push using the current branch name instead of hardcoded 'main'
-          await git.push(["-u", "origin", currentBranch]);
-          console.log(`Successfully pushed to ${currentBranch} branch`);
-        } catch (pushErr) {
-          console.error("Push error:", pushErr.message);
-
-          // Try with force flag but use the actual branch name
           try {
-            const currentBranch = (await git.branch()).current || "main";
-            console.log("Trying force push to branch:", currentBranch);
-            await git.push(["-u", "-f", "origin", currentBranch]);
-          } catch (forcePushErr) {
-            console.error("Force push also failed:", forcePushErr);
-            throw forcePushErr;
+            // First try a normal push
+            await git.push(["-u", "origin", currentBranch]);
+            console.log(`Successfully pushed to ${currentBranch} branch`);
+          } catch (initialPushErr) {
+            console.log("Initial push failed, trying force push");
+
+            // If normal push fails, use force push with the --force flag
+            try {
+              await git.push(["--force", "origin", currentBranch]);
+              console.log(
+                `Successfully force pushed to ${currentBranch} branch`
+              );
+            } catch (forcePushErr) {
+              console.error("Force push error:", forcePushErr.message);
+
+              // Try one more time with the -f shorthand
+              await git.push(["-f", "origin", currentBranch]);
+              console.log(
+                `Successfully force pushed with -f to ${currentBranch} branch`
+              );
+            }
           }
+        } catch (pushErr) {
+          console.error("All push attempts failed:", pushErr.message);
+          throw new Error(
+            `Failed to push to GitHub repository: ${pushErr.message}`
+          );
         }
 
         // Update folder in database with GitHub repo info
