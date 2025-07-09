@@ -39,7 +39,7 @@ connectDb();
 
 app.use(
   cors({
-    origin: process.env.CLIENT_URL || "http://localhost:5173",
+    origin: process.env.CLIENT_URL,
     credentials: true,
   })
 );
@@ -63,6 +63,34 @@ setupSocketHandlers(io);
 app.get("/", (req, res) => {
   res.json({ message: "Welcome to Collaborative Code Editor API" });
 });
+
+// Handle WebSocket routing for production environment
+if (process.env.NODE_ENV === "production") {
+  const httpServer = require("http").createServer(app);
+
+  httpServer.on("upgrade", (request, socket, head) => {
+    const url = new URL(request.url, "http://localhost");
+    const pathname = url.pathname;
+
+    if (pathname === "/sharedb") {
+      // Forward to ShareDB WebSocket server on port 8000
+      const sharedbProxy = require("http-proxy").createProxyServer({
+        target: "ws://localhost:8000",
+        ws: true,
+      });
+      sharedbProxy.web(request, socket, head);
+    } else if (pathname === "/cursors") {
+      // Forward to Cursor WebSocket server on port 8081
+      const cursorProxy = require("http-proxy").createProxyServer({
+        target: "ws://localhost:8081",
+        ws: true,
+      });
+      cursorProxy.web(request, socket, head);
+    } else {
+      socket.destroy();
+    }
+  });
+}
 
 httpServer.listen(process.env.PORT || 5000, () => {
   console.log(`Server is running on port ${process.env.PORT || 5000}`);

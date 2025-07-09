@@ -89,7 +89,7 @@ MongoClient.connect(dbUrl)
     });
 
     // Start server
-    const PORT = process.env.SHAREDB_PORT || 8080;
+    const PORT = process.env.SHAREDB_PORT;
     server.listen(PORT, () => {
       console.log(`ShareDB WebSocket server running on port ${PORT}`);
     });

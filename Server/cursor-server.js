@@ -110,7 +110,7 @@ wss.on("connection", (ws, req) => {
   });
 });
 
-const PORT = process.env.CURSOR_PORT || 8081;
+const PORT = process.env.CURSOR_PORT;
 server.listen(PORT, () => {
   console.log(`Cursor WebSocket server running on port ${PORT}`);
 });
