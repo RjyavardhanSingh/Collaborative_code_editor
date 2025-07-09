@@ -4,6 +4,13 @@ import Activity from "../models/activity.model.js";
 import User from "../models/user.model.js";
 import FolderInvitation from "../models/folderInvitation.model.js";
 import FolderMessage from "../models/folderMessage.model.js";
+import { 
+  checkFolderAccess, 
+  getAllSubfolderIds, 
+  buildFolderHierarchy, 
+  filterFoldersWithDocuments 
+} from "../utils/folderUtils.js";
+import { asyncHandler, ErrorResponses, sendError, sendSuccess } from "../utils/responseUtils.js";
 
 export const createFolder = async (req, res) => {
   try {
@@ -40,46 +47,38 @@ export const getFolders = async (req, res) => {
   }
 };
 
-export const getFolderById = async (req, res) => {
-  try {
-    const folder = await Folder.findById(req.params.id)
-      .populate({
-        path: "documents",
-        select: "title language updatedAt",
-      })
-      .populate({
-        path: "collaborators.user",
-        select: "username email _id",
-      });
+export const getFolderById = asyncHandler(async (req, res) => {
+  const folder = await Folder.findById(req.params.id)
+    .populate({
+      path: "documents",
+      select: "title language updatedAt",
+    })
+    .populate({
+      path: "collaborators.user",
+      select: "username email _id",
+    });
 
-    if (!folder) {
-      return res.status(404).json({ message: "Folder not found" });
-    }
-
-    const isOwner = folder.owner.toString() === req.user._id.toString();
-    const isCollaborator = folder.collaborators.some(
-      (c) => c.user._id.toString() === req.user._id.toString()
-    );
-
-    if (!isOwner && !isCollaborator) {
-      return res.status(403).json({ message: "Access denied" });
-    }
-
-    // Format the response
-    const formattedFolder = {
-      ...folder.toObject(),
-      collaborators: folder.collaborators.map((collab) => ({
-        user: collab.user,
-        permission: collab.permission,
-        selectedFiles: collab.selectedFiles || [],
-      })),
-    };
-
-    res.json(formattedFolder);
-  } catch (error) {
-    res.status(500).json({ message: error.message });
+  if (!folder) {
+    return sendError(res, ErrorResponses.notFound('Folder'));
   }
-};
+
+  const { hasAccess } = checkFolderAccess(folder, req.user._id);
+  if (!hasAccess) {
+    return sendError(res, ErrorResponses.accessDenied());
+  }
+
+  // Format the response
+  const formattedFolder = {
+    ...folder.toObject(),
+    collaborators: folder.collaborators.map((collab) => ({
+      user: collab.user,
+      permission: collab.permission,
+      selectedFiles: collab.selectedFiles || [],
+    })),
+  };
+
+  sendSuccess(res, formattedFolder);
+});
 
 export const updateFolder = async (req, res) => {
   try {
@@ -233,325 +232,180 @@ export const removeCollaborator = async (req, res) => {
   }
 };
 
-export const getFolderCollaborators = async (req, res) => {
-  try {
-    const folder = await Folder.findById(req.params.id)
-      .populate("collaborators.user", "username email avatar")
-      .populate("owner", "username email avatar");
+export const getFolderCollaborators = asyncHandler(async (req, res) => {
+  const folder = await Folder.findById(req.params.id)
+    .populate("collaborators.user", "username email avatar")
+    .populate("owner", "username email avatar");
 
-    if (!folder) {
-      return res.status(404).json({ message: "Folder not found" });
-    }
-
-    const isOwner = folder.owner._id.toString() === req.user._id.toString();
-    const isCollaborator = folder.collaborators.some(
-      (c) => c.user._id.toString() === req.user._id.toString()
-    );
-
-    if (!isOwner && !isCollaborator) {
-      return res.status(403).json({ message: "Access denied" });
-    }
-
-    const formattedCollaborators = folder.collaborators.map((c) => ({
-      user: {
-        _id: c.user._id,
-        username: c.user.username,
-        email: c.user.email,
-        avatar: c.user.avatar,
-      },
-      permission: c.permission,
-      selectedFiles: c.selectedFiles || [],
-    }));
-
-    res.json({
-      owner: {
-        _id: folder.owner._id,
-        username: folder.owner.username,
-        email: folder.owner.email,
-        avatar: folder.owner.avatar,
-      },
-      collaborators: formattedCollaborators,
-    });
-  } catch (error) {
-    res.status(500).json({ message: error.message });
+  if (!folder) {
+    return sendError(res, ErrorResponses.notFound('Folder'));
   }
-};
 
-export const getFolderMessages = async (req, res) => {
-  try {
-    const { id } = req.params;
-
-    const folder = await Folder.findById(id);
-    if (!folder) {
-      return res.status(404).json({ message: "Folder not found" });
-    }
-
-    const isOwner = folder.owner.toString() === req.user._id.toString();
-    const isCollaborator = folder.collaborators.some(
-      (c) => c.user.toString() === req.user._id.toString()
-    );
-
-    if (!isOwner && !isCollaborator) {
-      return res.status(403).json({ message: "Access denied" });
-    }
-
-    const messages = await FolderMessage.find({ folderId: id })
-      .sort({ createdAt: 1 })
-      .populate("sender", "username avatar");
-
-    res.json(messages);
-  } catch (error) {
-    res.status(500).json({ message: error.message });
+  const { hasAccess } = checkFolderAccess(folder, req.user._id);
+  if (!hasAccess) {
+    return sendError(res, ErrorResponses.accessDenied());
   }
-};
 
-export const createFolderMessage = async (req, res) => {
-  try {
-    const { id } = req.params;
-    const { content } = req.body;
+  const formattedCollaborators = folder.collaborators.map((c) => ({
+    user: {
+      _id: c.user._id,
+      username: c.user.username,
+      email: c.user.email,
+      avatar: c.user.avatar,
+    },
+    permission: c.permission,
+    selectedFiles: c.selectedFiles || [],
+  }));
 
-    if (!content) {
-      return res.status(400).json({ message: "Message content is required" });
-    }
+  sendSuccess(res, {
+    owner: {
+      _id: folder.owner._id,
+      username: folder.owner.username,
+      email: folder.owner.email,
+      avatar: folder.owner.avatar,
+    },
+    collaborators: formattedCollaborators,
+  });
+});
 
-    const folder = await Folder.findById(id);
-    if (!folder) {
-      return res.status(404).json({ message: "Folder not found" });
-    }
+export const getFolderMessages = asyncHandler(async (req, res) => {
+  const { id } = req.params;
 
-    const isOwner = folder.owner.toString() === req.user._id.toString();
-    const isCollaborator = folder.collaborators.some(
-      (c) => c.user.toString() === req.user._id.toString()
-    );
-
-    if (!isOwner && !isCollaborator) {
-      return res.status(403).json({ message: "Access denied" });
-    }
-
-    const message = await FolderMessage.create({
-      folderId: id,
-      content,
-      sender: req.user._id,
-    });
-
-    await message.populate("sender", "username avatar");
-
-    req.app.get("io").to(`folder:${id}`).emit("new-message", message);
-
-    res.status(201).json(message);
-  } catch (error) {
-    res.status(500).json({ message: error.message });
+  const folder = await Folder.findById(id);
+  if (!folder) {
+    return sendError(res, ErrorResponses.notFound('Folder'));
   }
-};
 
-export const getFolderDocuments = async (req, res) => {
-  try {
-    const { id } = req.params;
-
-    // Find the folder
-    const folder = await Folder.findById(id).populate(
-      "collaborators.user",
-      "_id"
-    );
-    if (!folder) {
-      return res.status(404).json({ message: "Folder not found" });
-    }
-
-    // Check permissions
-    const isOwner = folder.owner.toString() === req.user._id.toString();
-    const collaborator = folder.collaborators.find(
-      (c) => c.user._id?.toString() === req.user._id.toString()
-    );
-
-    if (!isOwner && !collaborator) {
-      return res.status(403).json({ message: "Access denied" });
-    }
-
-    // If collaborator with selected files, filter to just those files
-    let filteredFileIds = null;
-    if (
-      !isOwner &&
-      collaborator &&
-      collaborator.selectedFiles &&
-      collaborator.selectedFiles.length > 0
-    ) {
-      filteredFileIds = collaborator.selectedFiles.map((id) => id.toString());
-    }
-
-    // Get all subfolders recursively
-    const getAllSubfolderIds = (folders, rootId) => {
-      const result = [rootId]; // Include the root folder itself
-
-      const findChildren = (parentId) => {
-        folders.forEach((folder) => {
-          if (folder.parentFolder?.toString() === parentId?.toString()) {
-            result.push(folder._id);
-            findChildren(folder._id); // Recursively find children
-          }
-        });
-      };
-
-      findChildren(rootId);
-      console.log(`Found subfolder IDs for ${rootId}:`, result);
-      return result;
-    };
-
-    // Get all folder IDs in the hierarchy
-    const folderIds = getAllSubfolderIds([folder], id);
-
-    // Get all folders in one query
-    const folders = await Folder.find({
-      _id: { $in: folderIds },
-    }).select("_id name parentFolder");
-
-    // Get all documents in one query
-    let documents = await Document.find({
-      folder: { $in: folderIds },
-    }).select("_id title language updatedAt folder");
-
-    // Filter documents if needed based on permissions
-    if (filteredFileIds) {
-      documents = documents.filter((doc) =>
-        filteredFileIds.includes(doc._id.toString())
-      );
-
-      // Track which folders contain shared files
-      const relevantFolderIds = new Set();
-
-      // Add each document's immediate folder
-      documents.forEach((doc) => {
-        if (doc.folder) {
-          relevantFolderIds.add(doc.folder.toString());
-        }
-      });
-
-      // Add all parent folders up to the root
-      const addParentFolders = (folderId) => {
-        const folder = folders.find((f) => f._id.toString() === folderId);
-        if (folder && folder.parentFolder) {
-          const parentId = folder.parentFolder.toString();
-          relevantFolderIds.add(parentId);
-          addParentFolders(parentId);
-        }
-      };
-
-      // Process each folder containing shared files
-      [...relevantFolderIds].forEach((folderId) => {
-        addParentFolders(folderId);
-      });
-
-      // Filter folders to only include relevant ones
-      folders = folders.filter((folder) =>
-        relevantFolderIds.has(folder._id.toString())
-      );
-    }
-
-    // Create a map for quick folder lookups
-    const folderMap = {};
-    folders.forEach((folder) => {
-      folderMap[folder._id.toString()] = {
-        _id: folder._id,
-        name: folder.name,
-        type: "folder",
-        parentFolder: folder.parentFolder,
-        documents: [],
-        subfolders: [],
-      };
-    });
-
-    // Assign documents to their respective folders
-    documents.forEach((doc) => {
-      const folderId = doc.folder.toString();
-      if (folderMap[folderId]) {
-        folderMap[folderId].documents.push({
-          _id: doc._id,
-          title: doc.title,
-          language: doc.language,
-          updatedAt: doc.updatedAt,
-        });
-      }
-    });
-
-    // Build the folder hierarchy
-    const rootFolder = folderMap[id.toString()];
-    if (!rootFolder) {
-      return res.status(404).json({ message: "Folder structure not found" });
-    }
-
-    // Add subfolders to their parent folders
-    folders.forEach((folder) => {
-      if (folder._id.toString() === id.toString()) return; // Skip the root folder
-
-      const parentId = folder.parentFolder
-        ? folder.parentFolder.toString()
-        : null;
-      if (parentId && folderMap[parentId]) {
-        folderMap[parentId].subfolders.push(folderMap[folder._id.toString()]);
-      }
-    });
-
-    // Log the filtered documents for debugging
-    console.log(
-      `Filtered documents for folder ${id}:`,
-      documents.map((d) => ({ id: d._id, title: d.title }))
-    );
-
-    // Return both tree structure and flat documents list
-    res.json({
-      treeStructure: rootFolder,
-      flatDocuments: documents,
-      hasFilteredAccess: !!filteredFileIds,
-      filteredFileIds: filteredFileIds,
-    });
-  } catch (error) {
-    console.error("Error fetching folder documents:", error);
-    res.status(500).json({ message: error.message });
+  const { hasAccess } = checkFolderAccess(folder, req.user._id);
+  if (!hasAccess) {
+    return sendError(res, ErrorResponses.accessDenied());
   }
-};
 
-// Add this new controller function
-export const getFolderDocument = async (req, res) => {
-  try {
-    const { id, documentId } = req.params;
+  const messages = await FolderMessage.find({ folderId: id })
+    .sort({ createdAt: 1 })
+    .populate("sender", "username avatar");
 
-    // Find the folder
-    const folder = await Folder.findById(id);
-    if (!folder) {
-      return res.status(404).json({ message: "Folder not found" });
-    }
+  sendSuccess(res, messages);
+});
 
-    // Check if user has access to this folder
-    const userId = req.user._id.toString();
-    const isOwner = folder.owner.toString() === userId;
-    const isCollaborator = folder.collaborators.some(
-      (col) => col.user.toString() === userId
-    );
+export const createFolderMessage = asyncHandler(async (req, res) => {
+  const { id } = req.params;
+  const { content } = req.body;
 
-    if (!isOwner && !isCollaborator) {
-      return res.status(403).json({ message: "Access denied to this folder" });
-    }
-
-    // Find the document
-    const document = await Document.findById(documentId);
-    if (!document) {
-      return res.status(404).json({ message: "Document not found" });
-    }
-
-    // Verify document belongs to this folder
-    const documentFolderId = document.folder?.toString();
-    if (documentFolderId !== id) {
-      return res
-        .status(404)
-        .json({ message: "Document not found in this folder" });
-    }
-
-    // Return the document
-    res.json(document);
-  } catch (error) {
-    console.error("Error fetching folder document:", error);
-    res.status(500).json({ message: error.message });
+  if (!content) {
+    return sendError(res, ErrorResponses.badRequest('Message content is required'));
   }
-};
+
+  const folder = await Folder.findById(id);
+  if (!folder) {
+    return sendError(res, ErrorResponses.notFound('Folder'));
+  }
+
+  const { hasAccess } = checkFolderAccess(folder, req.user._id);
+  if (!hasAccess) {
+    return sendError(res, ErrorResponses.accessDenied());
+  }
+
+  const message = await FolderMessage.create({
+    folderId: id,
+    content,
+    sender: req.user._id,
+  });
+
+  await message.populate("sender", "username avatar");
+
+  req.app.get("io").to(`folder:${id}`).emit("new-message", message);
+
+  sendSuccess(res, message, null, 201);
+});
+
+export const getFolderDocuments = asyncHandler(async (req, res) => {
+  const { id } = req.params;
+
+  // Find the folder
+  const folder = await Folder.findById(id).populate("collaborators.user", "_id");
+  if (!folder) {
+    return sendError(res, ErrorResponses.notFound('Folder'));
+  }
+
+  // Check permissions and get collaborator info
+  const { isOwner, collaborator, hasAccess } = checkFolderAccess(folder, req.user._id);
+  if (!hasAccess) {
+    return sendError(res, ErrorResponses.accessDenied());
+  }
+
+  // If collaborator with selected files, filter to just those files
+  let filteredFileIds = null;
+  if (!isOwner && collaborator?.selectedFiles?.length > 0) {
+    filteredFileIds = collaborator.selectedFiles.map((id) => id.toString());
+  }
+
+  // Get all folder IDs in the hierarchy using utility function
+  const folderIds = await getAllSubfolderIds(id, [folder]);
+
+  // Get all folders and documents in one query each
+  let folders = await Folder.find({ _id: { $in: folderIds } }).select("_id name parentFolder");
+  let documents = await Document.find({ folder: { $in: folderIds } })
+    .select("_id title language updatedAt folder");
+
+  // Filter documents and folders if needed based on permissions
+  if (filteredFileIds) {
+    const filtered = filterFoldersWithDocuments(folders, documents, filteredFileIds);
+    folders = filtered.filteredFolders;
+    documents = filtered.filteredDocuments;
+  }
+
+  // Build the folder hierarchy using utility function
+  const rootFolder = buildFolderHierarchy(folders, documents, id);
+  if (!rootFolder) {
+    return sendError(res, ErrorResponses.notFound('Folder structure'));
+  }
+
+  // Log the filtered documents for debugging
+  console.log(
+    `Filtered documents for folder ${id}:`,
+    documents.map((d) => ({ id: d._id, title: d.title }))
+  );
+
+  // Return both tree structure and flat documents list
+  sendSuccess(res, {
+    treeStructure: rootFolder,
+    flatDocuments: documents,
+    hasFilteredAccess: !!filteredFileIds,
+    filteredFileIds: filteredFileIds,
+  });
+});
+
+export const getFolderDocument = asyncHandler(async (req, res) => {
+  const { id, documentId } = req.params;
+
+  // Find the folder
+  const folder = await Folder.findById(id);
+  if (!folder) {
+    return sendError(res, ErrorResponses.notFound('Folder'));
+  }
+
+  // Check if user has access to this folder
+  const { hasAccess } = checkFolderAccess(folder, req.user._id);
+  if (!hasAccess) {
+    return sendError(res, ErrorResponses.accessDenied('Access denied to this folder'));
+  }
+
+  // Find the document
+  const document = await Document.findById(documentId);
+  if (!document) {
+    return sendError(res, ErrorResponses.notFound('Document'));
+  }
+
+  // Verify document belongs to this folder
+  const documentFolderId = document.folder?.toString();
+  if (documentFolderId !== id) {
+    return sendError(res, ErrorResponses.notFound('Document not found in this folder'));
+  }
+
+  // Return the document
+  sendSuccess(res, document);
+});
 
 // Add this new controller function to folder.controller.js
 export const updateCollaboratorPermission = async (req, res) => {

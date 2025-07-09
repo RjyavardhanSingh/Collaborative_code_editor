@@ -45,13 +45,35 @@ export class MonacoShareDBBinding {
     }
   }
 
-  // Enhanced method to save ONLY remote cursor decorations (not local cursor)
+  // Optimized method to save ONLY remote cursor decorations (not local cursor)
   saveAllCursors() {
     if (this.isRestoringCursors) return new Map();
 
     const cursors = new Map();
 
-    // CRITICAL: Save local cursor position separately
+    // Save local cursor position separately for restoration
+    this.saveLocalCursorPosition();
+
+    // Get and filter remote cursor decorations
+    const decorations = this.model.getAllDecorations();
+    decorations.forEach((decoration) => {
+      const cursorData = this.extractCursorData(decoration);
+      if (cursorData) {
+        cursors.set(cursorData.userId, {
+          range: decoration.range,
+          options: decoration.options,
+          id: decoration.id,
+        });
+      }
+    });
+
+    this.preservedCursors = cursors;
+    console.log(`💾 Saved ${cursors.size} remote cursors (excluding local cursor)`);
+    return cursors;
+  }
+
+  // Helper method to save local cursor position
+  saveLocalCursorPosition() {
     const localPosition = this.editor.getPosition();
     const localSelection = this.editor.getSelection();
 
@@ -65,38 +87,24 @@ export class MonacoShareDBBinding {
         `💾 Saved local cursor at line ${localPosition.lineNumber}, column ${localPosition.column}`
       );
     }
-
-    // Get all current decorations
-    const decorations = this.model.getAllDecorations();
-
-    decorations.forEach((decoration) => {
-      // Look for remote cursor decorations only (not local user)
-      if (
-        decoration.options.className &&
-        decoration.options.className.includes("remote-cursor-") &&
-        !decoration.options.className.includes("local-cursor") // Exclude local cursor decorations
-      ) {
-        const classMatch =
-          decoration.options.className.match(/remote-cursor-(\w+)/);
-        if (classMatch) {
-          const userId = classMatch[1];
-          cursors.set(userId, {
-            range: decoration.range,
-            options: decoration.options,
-            id: decoration.id,
-          });
-        }
-      }
-    });
-
-    this.preservedCursors = cursors;
-    console.log(
-      `💾 Saved ${cursors.size} remote cursors (excluding local cursor)`
-    );
-    return cursors;
   }
 
-  // Enhanced method to restore cursors after content update
+  // Helper method to extract cursor data from decoration
+  extractCursorData(decoration) {
+    if (
+      decoration.options.className &&
+      decoration.options.className.includes("remote-cursor-") &&
+      !decoration.options.className.includes("local-cursor") // Exclude local cursor decorations
+    ) {
+      const classMatch = decoration.options.className.match(/remote-cursor-(\w+)/);
+      if (classMatch) {
+        return { userId: classMatch[1] };
+      }
+    }
+    return null;
+  }
+
+  // Optimized method to restore cursors after content update
   restoreAllCursors(cursors = null) {
     const cursorsToRestore = cursors || this.preservedCursors;
 
@@ -105,53 +113,66 @@ export class MonacoShareDBBinding {
     // Set restoration flag to prevent conflicts
     this.isRestoringCursors = true;
 
-    console.log(
-      `🔄 Restoring ${cursorsToRestore.size} remote cursors + local cursor`
-    );
+    console.log(`🔄 Restoring ${cursorsToRestore.size} remote cursors + local cursor`);
 
-    // CRITICAL: Restore local cursor position first
-    if (this.localCursorPosition) {
-      try {
-        console.log(
-          `🔄 Restoring local cursor to line ${this.localCursorPosition.position.lineNumber}`
-        );
-
-        // Restore cursor position
-        this.editor.setPosition(this.localCursorPosition.position);
-
-        // Restore selection if it was a selection
-        if (
-          this.localCursorPosition.selection &&
-          !this.localCursorPosition.selection.isEmpty()
-        ) {
-          this.editor.setSelection(this.localCursorPosition.selection);
-        }
-
-        console.log(`✅ Local cursor restored successfully`);
-      } catch (err) {
-        console.error("❌ Failed to restore local cursor:", err);
-      }
-    }
+    // Restore local cursor position first
+    this.restoreLocalCursor();
 
     // Dispatch event for remote cursors only
-    if (cursorsToRestore.size > 0) {
-      const event = new CustomEvent("restore-remote-cursors", {
-        detail: {
-          cursors: Array.from(cursorsToRestore.entries()).map(
-            ([userId, cursorData]) => ({
-              userId,
-              range: cursorData.range,
-              options: cursorData.options,
-            })
-          ),
-          timestamp: Date.now(),
-        },
-      });
-
-      document.dispatchEvent(event);
-    }
+    this.dispatchRemoteCursorEvent(cursorsToRestore);
 
     // Reset flag after a short delay
+    this.scheduleRestoreCleanup();
+  }
+
+  // Helper method to restore local cursor
+  restoreLocalCursor() {
+    if (!this.localCursorPosition) return;
+
+    try {
+      console.log(
+        `🔄 Restoring local cursor to line ${this.localCursorPosition.position.lineNumber}`
+      );
+
+      // Restore cursor position
+      this.editor.setPosition(this.localCursorPosition.position);
+
+      // Restore selection if it was a selection
+      if (
+        this.localCursorPosition.selection &&
+        !this.localCursorPosition.selection.isEmpty()
+      ) {
+        this.editor.setSelection(this.localCursorPosition.selection);
+      }
+
+      console.log(`✅ Local cursor restored successfully`);
+    } catch (err) {
+      console.error("❌ Failed to restore local cursor:", err);
+    }
+  }
+
+  // Helper method to dispatch remote cursor event
+  dispatchRemoteCursorEvent(cursorsToRestore) {
+    if (cursorsToRestore.size === 0) return;
+
+    const event = new CustomEvent("restore-remote-cursors", {
+      detail: {
+        cursors: Array.from(cursorsToRestore.entries()).map(
+          ([userId, cursorData]) => ({
+            userId,
+            range: cursorData.range,
+            options: cursorData.options,
+          })
+        ),
+        timestamp: Date.now(),
+      },
+    });
+
+    document.dispatchEvent(event);
+  }
+
+  // Helper method to schedule cleanup after restore
+  scheduleRestoreCleanup() {
     setTimeout(() => {
       this.isRestoringCursors = false;
       this.localCursorPosition = null; // Clear saved position
@@ -206,7 +227,7 @@ export class MonacoShareDBBinding {
           if (content !== editorContent) {
             this.isUpdatingMonaco = true;
 
-            // CRITICAL: Save cursors with proper local/remote distinction
+            // Save cursors with proper local/remote distinction
             const savedCursors = this.saveAllCursors();
             console.log(
               `💾 Content update from ${source}, saved ${savedCursors.size} remote cursors + local position`
@@ -221,7 +242,7 @@ export class MonacoShareDBBinding {
               },
             ]);
 
-            // CRITICAL: Restore cursors with proper timing
+            // Restore cursors with proper timing
             setTimeout(() => {
               console.log("🔄 Restoring cursors after content update");
               this.restoreAllCursors(savedCursors);
