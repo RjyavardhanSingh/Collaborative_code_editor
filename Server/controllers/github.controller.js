@@ -475,6 +475,12 @@ export const commitChanges = async (req, res) => {
 
       // CRITICAL FIX: Push explicitly using branch name, not commit hash
       console.log(`Pushing branch: ${currentBranch}`);
+      // Get current branch name - should be 'main' now
+      const branch = await git.branch();
+      const currentBranch = branch.current || "main";
+      console.log(`Pushing using branch: ${currentBranch}`);
+
+      // Push to GitHub with the branch name
       await git.push(["-u", "origin", currentBranch]);
     } catch (pushErr) {
       console.error("Push error:", pushErr);
@@ -1185,8 +1191,28 @@ export const publishToGitHub = async (req, res) => {
 
         // Initialize a fresh Git repository
         await git.init();
+        console.log("Initialized fresh Git repository");
 
-        // FIX: Set Git user configuration using GitHub user info
+        // CRITICAL FIX: Create a main branch explicitly
+        try {
+          // Create main branch
+          await git.checkout(["-b", "main"]);
+          console.log("Created and switched to 'main' branch");
+        } catch (branchErr) {
+          console.error("Error creating main branch:", branchErr);
+          // Try alternative approach if needed
+          try {
+            await git.raw(["checkout", "-b", "main"]);
+            console.log("Created main branch using raw command");
+          } catch (rawErr) {
+            console.error(
+              "Failed to create branch with raw command too:",
+              rawErr
+            );
+          }
+        }
+
+        // Set Git user configuration using GitHub user info
         await git.addConfig("user.name", userData.login || "DevUnity User");
         await git.addConfig(
           "user.email",
