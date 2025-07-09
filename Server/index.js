@@ -66,29 +66,46 @@ app.get("/", (req, res) => {
 
 // Handle WebSocket routing for production environment
 if (process.env.NODE_ENV === "production") {
-  const httpServer = require("http").createServer(app);
+  // Use dynamic import for http-proxy
+  import("http-proxy").then((httpProxyModule) => {
+    const httpProxy = httpProxyModule.default;
 
-  httpServer.on("upgrade", (request, socket, head) => {
-    const url = new URL(request.url, "http://localhost");
-    const pathname = url.pathname;
+    httpServer.on("upgrade", (request, socket, head) => {
+      const url = new URL(request.url, "http://localhost");
+      const pathname = url.pathname;
 
-    if (pathname === "/sharedb") {
-      // Forward to ShareDB WebSocket server on port 8000
-      const sharedbProxy = require("http-proxy").createProxyServer({
-        target: "ws://localhost:8000",
-        ws: true,
-      });
-      sharedbProxy.web(request, socket, head);
-    } else if (pathname === "/cursors") {
-      // Forward to Cursor WebSocket server on port 8081
-      const cursorProxy = require("http-proxy").createProxyServer({
-        target: "ws://localhost:8081",
-        ws: true,
-      });
-      cursorProxy.web(request, socket, head);
-    } else {
-      socket.destroy();
-    }
+      if (pathname === "/sharedb") {
+        // Forward to ShareDB WebSocket server on port 8000
+        const sharedbProxy = httpProxy.createProxyServer({
+          target: "ws://127.0.0.1:8000", // More reliable than localhost
+          ws: true,
+          changeOrigin: true,
+        });
+
+        sharedbProxy.on("error", (err) => {
+          console.error("ShareDB proxy error:", err);
+          socket.destroy();
+        });
+
+        sharedbProxy.web(request, socket, head);
+      } else if (pathname === "/cursors") {
+        // Forward to Cursor WebSocket server on port 8081
+        const cursorProxy = httpProxy.createProxyServer({
+          target: "ws://127.0.0.1:8081", // More reliable than localhost
+          ws: true,
+          changeOrigin: true,
+        });
+
+        cursorProxy.on("error", (err) => {
+          console.error("Cursor proxy error:", err);
+          socket.destroy();
+        });
+
+        cursorProxy.web(request, socket, head);
+      } else {
+        socket.destroy();
+      }
+    });
   });
 }
 
