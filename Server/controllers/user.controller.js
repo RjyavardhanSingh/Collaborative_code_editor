@@ -2,6 +2,8 @@ import User from "../models/user.model.js";
 import Document from "../models/document.model.js";
 import Invitation from "../models/invitation.model.js";
 import Folder from "../models/folder.model.js";
+import { countDocumentsInFolderTree } from "../utils/folderUtils.js";
+import { asyncHandler, ErrorResponses, sendError, sendSuccess } from "../utils/responseUtils.js";
 
 export const getUserProfile = async (req, res) => {
   try {
@@ -202,114 +204,86 @@ export const cancelInvitation = async (req, res) => {
 };
 
 
-export const getSharedContent = async (req, res) => {
-  try {
-    const userId = req.params.id;
+export const getSharedContent = asyncHandler(async (req, res) => {
+  const userId = req.params.id;
 
-    // Ensure the user is requesting their own data
-    if (userId !== req.user._id.toString()) {
-      return res.status(403).json({ message: "Access denied" });
-    }
+  // Ensure the user is requesting their own data
+  if (userId !== req.user._id.toString()) {
+    return sendError(res, ErrorResponses.accessDenied());
+  }
 
-    // Get all documents shared with the user
-    const sharedDocuments = await Document.find({
-      "collaborators.user": userId,
-      owner: { $ne: userId },
-    })
-      .populate("owner", "username email")
-      .populate("folder", "name") // Populate folder to know source
-      .lean();
+  // Get all documents shared with the user
+  const sharedDocuments = await Document.find({
+    "collaborators.user": userId,
+    owner: { $ne: userId },
+  })
+    .populate("owner", "username email")
+    .populate("folder", "name") // Populate folder to know source
+    .lean();
 
-    // Get all folders shared with the user
-    const sharedFolders = await Folder.find({
-      "collaborators.user": userId,
-      owner: { $ne: userId },
-    })
-      .populate("owner", "username email")
-      .lean();
+  // Get all folders shared with the user
+  const sharedFolders = await Folder.find({
+    "collaborators.user": userId,
+    owner: { $ne: userId },
+  })
+    .populate("owner", "username email")
+    .lean();
 
-    // Process folders to include document count
-    const processedFolders = await Promise.all(
-      sharedFolders.map(async (folder) => {
-        // Count all documents in this folder and its subfolders
-        const documentCount = await countDocumentsInFolderTree(folder._id);
+  // Process folders to include document count
+  const processedFolders = await Promise.all(
+    sharedFolders.map(async (folder) => {
+      // Count all documents in this folder and its subfolders
+      const documentCount = await countDocumentsInFolderTree(folder._id);
 
-        // Get the user's permission for this folder
-        const collaborator = folder.collaborators.find(
-          (c) => c.user.toString() === userId
-        );
-
-        return {
-          ...folder,
-          documentCount,
-          permission: collaborator?.permission || "read",
-          selectedFiles: collaborator?.selectedFiles || [], // Add this line
-        };
-      })
-    );
-
-    // Log the processed data
-    console.log(
-      "API returning shared folders with files:",
-      processedFolders.map((f) => ({
-        name: f.name,
-        filesCount: f.selectedFiles?.length || 0,
-      }))
-    );
-
-    // Process documents to categorize by source
-    const processedFiles = sharedDocuments.map((doc) => {
-      // Determine if it's from a folder or global
-      const sourceType = doc.folder ? "folder" : "global";
-
-      // Get the user's permission for this document
-      const collaborator = doc.collaborators.find(
+      // Get the user's permission for this folder
+      const collaborator = folder.collaborators.find(
         (c) => c.user.toString() === userId
       );
 
       return {
-        ...doc,
-        sourceType,
-        sourceName: doc.folder?.name || null,
+        ...folder,
+        documentCount,
         permission: collaborator?.permission || "read",
+        selectedFiles: collaborator?.selectedFiles || [], // Add this line
       };
-    });
+    })
+  );
 
-    // Sort folders alphabetically
-    processedFolders.sort((a, b) => a.name.localeCompare(b.name));
+  // Log the processed data
+  console.log(
+    "API returning shared folders with files:",
+    processedFolders.map((f) => ({
+      name: f.name,
+      filesCount: f.selectedFiles?.length || 0,
+    }))
+  );
 
-    res.json({
-      files: processedFiles,
-      folders: processedFolders,
-    });
-  } catch (error) {
-    console.error("Error fetching shared content:", error);
-    res.status(500).json({ message: error.message });
-  }
-};
+  // Process documents to categorize by source
+  const processedFiles = sharedDocuments.map((doc) => {
+    // Determine if it's from a folder or global
+    const sourceType = doc.folder ? "folder" : "global";
 
-const countDocumentsInFolderTree = async (folderId) => {
-  // Get all subfolders recursively
-  const getAllSubfolderIds = async (rootId) => {
-    const result = [rootId]; // Include the starting folder ID
-
-    const subfolders = await Folder.find({ parentFolder: rootId }).select(
-      "_id"
+    // Get the user's permission for this document
+    const collaborator = doc.collaborators.find(
+      (c) => c.user.toString() === userId
     );
-    for (const subfolder of subfolders) {
-      const childIds = await getAllSubfolderIds(subfolder._id);
-      result.push(...childIds);
-    }
 
-    return result;
-  };
-
-  const folderIds = await getAllSubfolderIds(folderId);
-
-  // Count documents in all these folders
-  const count = await Document.countDocuments({
-    folder: { $in: folderIds },
+    return {
+      ...doc,
+      sourceType,
+      sourceName: doc.folder?.name || null,
+      permission: collaborator?.permission || "read",
+    };
   });
 
-  return count;
-};
+  // Sort folders alphabetically
+  processedFolders.sort((a, b) => a.name.localeCompare(b.name));
+
+  sendSuccess(res, {
+    files: processedFiles,
+    folders: processedFolders,
+  });
+});
+
+// Remove the duplicate function since we're now using the shared utility
+// const countDocumentsInFolderTree = async (folderId) => { ... }
