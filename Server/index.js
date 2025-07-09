@@ -128,52 +128,56 @@ if (process.env.NODE_ENV === "production") {
   import("http-proxy").then((httpProxyModule) => {
     const httpProxy = httpProxyModule.default;
 
-    // Create and configure proxies
-    const sharedbProxy = httpProxy.createProxyServer({
-      target: "ws://127.0.0.1:8000",
+    // Create a single proxy for all WebSocket connections
+    const wsProxy = httpProxy.createProxyServer({
       ws: true,
       changeOrigin: true,
+      ignorePath: true, // Add this to prevent path issues
+      xfwd: true, // Forward original headers
     });
 
-    const cursorProxy = httpProxy.createProxyServer({
-      target: "ws://127.0.0.1:8081",
-      ws: true,
-      changeOrigin: true,
-    });
+    // Add detailed error logging
+    wsProxy.on("error", (err, req, res) => {
+      console.error("WebSocket proxy error:", err.message);
+      console.error("Request URL that failed:", req?.url);
 
-    // Add error handlers to proxies
-    sharedbProxy.on("error", (err, req, res) => {
-      console.error("ShareDB proxy error:", err);
       if (res && res.writeHead) {
         res.writeHead(500, { "Content-Type": "text/plain" });
-        res.end("ShareDB proxy error");
+        res.end("WebSocket proxy error");
+      }
+
+      // Don't destroy the socket to allow retries
+      if (req && req.socket && !req.socket.destroyed) {
+        req.socket.end();
       }
     });
 
-    cursorProxy.on("error", (err, req, res) => {
-      console.error("Cursor proxy error:", err);
-      if (res && res.writeHead) {
-        res.writeHead(500, { "Content-Type": "text/plain" });
-        res.end("Cursor proxy error");
-      }
+    wsProxy.on("proxyReq", (proxyReq, req, res) => {
+      console.log(`Proxying request: ${req.url} -> ${proxyReq.path}`);
+    });
+
+    wsProxy.on("upgrade", (proxyReq, socket, head) => {
+      console.log("Proxy upgrade event received");
     });
 
     httpServer.on("upgrade", (req, socket, head) => {
       const pathname = new URL(req.url, "http://localhost").pathname;
-
-      // Log all WebSocket connection attempts to help debug
       console.log(`WebSocket upgrade request for: ${pathname}`);
 
       if (pathname.startsWith("/socket.io")) {
         console.log("Routing to Socket.IO");
-        // Socket.IO already handles its own upgrade
-        return;
+        return; // Socket.IO handles this
       } else if (pathname.startsWith("/sharedb")) {
         console.log("Routing to ShareDB service");
-        sharedbProxy.ws(req, socket, head);
+        // Set the target explicitly for each request
+        wsProxy.web(req, socket, head, {
+          target: "http://localhost:8000",
+        });
       } else if (pathname.startsWith("/cursors")) {
         console.log("Routing to Cursor service");
-        cursorProxy.ws(req, socket, head);
+        wsProxy.web(req, socket, head, {
+          target: "http://localhost:8081",
+        });
       } else {
         console.log(`Unknown WebSocket path: ${pathname}`);
         socket.destroy();

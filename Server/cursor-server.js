@@ -8,10 +8,9 @@ const server = http.createServer((req, res) => {
   res.end("Cursor WebSocket server is running");
 });
 
-// Create WebSocket server with explicit path
+// Create WebSocket server with noServer option
 const wss = new WebSocketServer({
-  server,
-  path: "/cursors", // Match the path in the proxy
+  noServer: true,
 });
 
 // Track connected clients
@@ -110,6 +109,15 @@ wss.on("connection", (ws, req) => {
     if (docClients.size === 0) {
       documentClients.delete(documentId);
     }
+  });
+});
+
+// Upgrade HTTP server to handle WebSocket connections
+server.on("upgrade", (request, socket, head) => {
+  // Accept all WebSocket connections regardless of path
+  wss.handleUpgrade(request, socket, head, (ws) => {
+    console.log("Cursor WebSocket connection accepted");
+    wss.emit("connection", ws, request);
   });
 });
 
