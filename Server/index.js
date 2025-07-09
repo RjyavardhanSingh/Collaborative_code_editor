@@ -70,45 +70,83 @@ app.get("/", (req, res) => {
   res.json({ message: "Welcome to Collaborative Code Editor API" });
 });
 
+// Add health check endpoints
+app.get("/health", (req, res) => {
+  res.status(200).send("Main server is healthy");
+});
+
+app.get("/sharedb-health", async (req, res) => {
+  try {
+    // Use 127.0.0.1 to check internal service on the same host
+    const response = await fetch("http://127.0.0.1:8000");
+    const text = await response.text();
+    res.status(200).send(`ShareDB server: ${text}`);
+  } catch (err) {
+    res.status(500).send(`ShareDB server error: ${err.message}`);
+  }
+});
+
+app.get("/cursor-health", async (req, res) => {
+  try {
+    // Use 127.0.0.1 to check internal service on the same host
+    const response = await fetch("http://127.0.0.1:8081");
+    const text = await response.text();
+    res.status(200).send(`Cursor server: ${text}`);
+  } catch (err) {
+    res.status(500).send(`Cursor server error: ${err.message}`);
+  }
+});
+
 // Handle WebSocket routing for production environment
 if (process.env.NODE_ENV === "production") {
   // Use dynamic import for http-proxy
   import("http-proxy").then((httpProxyModule) => {
     const httpProxy = httpProxyModule.default;
 
-    httpServer.on("upgrade", (request, socket, head) => {
-      const url = new URL(request.url, "http://localhost");
-      const pathname = url.pathname;
+    // Create and configure proxies
+    const sharedbProxy = httpProxy.createProxyServer({
+      target: "ws://127.0.0.1:8000",
+      ws: true,
+      changeOrigin: true,
+    });
 
-      if (pathname === "/sharedb") {
-        // Forward to ShareDB WebSocket server on port 8000
-        const sharedbProxy = httpProxy.createProxyServer({
-          target: "ws://127.0.0.1:8000", // More reliable than localhost
-          ws: true,
-          changeOrigin: true,
-        });
+    const cursorProxy = httpProxy.createProxyServer({
+      target: "ws://127.0.0.1:8081",
+      ws: true,
+      changeOrigin: true,
+    });
 
-        sharedbProxy.on("error", (err) => {
-          console.error("ShareDB proxy error:", err);
-          socket.destroy();
-        });
+    // Add error handlers to proxies
+    sharedbProxy.on("error", (err, req, res) => {
+      console.error("ShareDB proxy error:", err);
+      if (res && res.writeHead) {
+        res.writeHead(500, { "Content-Type": "text/plain" });
+        res.end("ShareDB proxy error");
+      }
+    });
 
-        sharedbProxy.web(request, socket, head);
-      } else if (pathname === "/cursors") {
-        // Forward to Cursor WebSocket server on port 8081
-        const cursorProxy = httpProxy.createProxyServer({
-          target: "ws://127.0.0.1:8081", // More reliable than localhost
-          ws: true,
-          changeOrigin: true,
-        });
+    cursorProxy.on("error", (err, req, res) => {
+      console.error("Cursor proxy error:", err);
+      if (res && res.writeHead) {
+        res.writeHead(500, { "Content-Type": "text/plain" });
+        res.end("Cursor proxy error");
+      }
+    });
 
-        cursorProxy.on("error", (err) => {
-          console.error("Cursor proxy error:", err);
-          socket.destroy();
-        });
+    httpServer.on("upgrade", (req, socket, head) => {
+      const pathname = new URL(req.url, "http://localhost").pathname;
 
-        cursorProxy.web(request, socket, head);
+      // Log all WebSocket connection attempts to help debug
+      console.log(`WebSocket upgrade request for: ${pathname}`);
+
+      if (pathname.startsWith("/sharedb")) {
+        console.log("Routing to ShareDB service");
+        sharedbProxy.ws(req, socket, head);
+      } else if (pathname.startsWith("/cursors")) {
+        console.log("Routing to Cursor service");
+        cursorProxy.ws(req, socket, head);
       } else {
+        console.log(`Unknown WebSocket path: ${pathname}`);
         socket.destroy();
       }
     });

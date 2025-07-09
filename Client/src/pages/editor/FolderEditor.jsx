@@ -307,8 +307,11 @@ export default function FolderEditor() {
 
       console.log(`Connecting to ShareDB: ${wsUrl}/${roomName}`);
 
-      // Create WebSocket connection
-      const shareDBSocket = new WebSocket(`${wsUrl}/${roomName}`);
+      // Create WebSocket connection - Remove any duplicate path segments
+      const shareDBUrl = `${wsUrl}/${roomName}`
+        .replace(/\/+/g, "/")
+        .replace("://", "://");
+      const shareDBSocket = new WebSocket(shareDBUrl);
 
       // Create ShareDB connection
       shareDBConnectionRef.current = new Connection(shareDBSocket);
@@ -423,7 +426,13 @@ export default function FolderEditor() {
 
     const cursorServerUrl =
       import.meta.env.VITE_CURSOR_URL || "ws://localhost:8081";
-    const cursorSocket = new WebSocket(`${cursorServerUrl}/cursors/${docId}`);
+
+    // Fix the duplicated 'cursors' in the path
+    const cursorSocketUrl = `${cursorServerUrl}/${docId}`.replace(
+      /cursors\/cursors/g,
+      "cursors"
+    );
+    const cursorSocket = new WebSocket(cursorSocketUrl);
     cursorSocketRef.current = cursorSocket;
 
     // Map to store cursor decorations by user ID

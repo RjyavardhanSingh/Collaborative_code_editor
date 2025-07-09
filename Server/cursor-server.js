@@ -8,8 +8,11 @@ const server = http.createServer((req, res) => {
   res.end("Cursor WebSocket server is running");
 });
 
-// Create WebSocket server
-const wss = new WebSocketServer({ server });
+// Create WebSocket server with explicit path
+const wss = new WebSocketServer({
+  server,
+  path: "/cursors", // Match the path in the proxy
+});
 
 // Track connected clients
 const documentClients = new Map();
