@@ -155,6 +155,19 @@ export const publishToGitHub = async (
     console.log("Published to GitHub:", response.data);
     if (setRepoStatus) setRepoStatus("published");
 
+    // CRITICAL FIX: Ensure we're on a proper branch - use main as default
+    let currentBranch;
+    try {
+      // Create main branch if we're in detached HEAD state
+      await git.checkout(["-b", "main"]);
+      currentBranch = "main";
+      console.log(`Created and switched to branch: ${currentBranch}`);
+    } catch (branchErr) {
+      // Branch might already exist
+      await git.checkout("main");
+      currentBranch = "main";
+    }
+
     // Critical section: Syncing database documents to repository
     console.log("Syncing database documents to repository...");
     const documents = await Document.find({ folder: folderId });
@@ -201,6 +214,9 @@ export const publishToGitHub = async (
     const status = await git.status();
     console.log("Staged files:", status.staged);
     console.log("Created files:", status.created);
+
+    // Push to GitHub
+    await git.push(["-u", "origin", currentBranch]);
 
     return response.data;
   } catch (err) {

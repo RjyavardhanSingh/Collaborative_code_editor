@@ -370,11 +370,10 @@ export const commitChanges = async (req, res) => {
     process.chdir(repoPath);
     console.log(`Changed working directory to: ${repoPath}`);
 
-    // Get or create git repository
+    // Create Git instance
     const git = simpleGit({
       baseDir: repoPath,
       binary: "git",
-      // Use environment variables for better isolation
       env: {
         ...process.env,
         GIT_DIR: path.join(repoPath, ".git"),
@@ -390,15 +389,35 @@ export const commitChanges = async (req, res) => {
       console.log(`Initialized fresh Git repository`);
     }
 
-    // Configure Git user - CRITICAL FIX
+    // Configure Git user
     console.log("Configuring Git user");
     await git.addConfig("user.name", "DevUnity User");
     await git.addConfig("user.email", "user@devunity.com");
 
-    // CRITICAL FIX: If files array is empty, fetch all documents from database
+    // CRITICAL FIX: Ensure we're on a proper branch - use main as default
+    let currentBranch;
+    try {
+      currentBranch = (await git.branch()).current;
+
+      // If we're in detached HEAD state or no branch exists
+      if (!currentBranch || currentBranch === "HEAD") {
+        console.log(
+          "Repository is in detached HEAD state. Creating main branch..."
+        );
+        // Create a main branch pointing to HEAD
+        await git.checkout(["-b", "main"]);
+        currentBranch = "main";
+        console.log(`Created and switched to branch: ${currentBranch}`);
+      }
+    } catch (branchErr) {
+      console.log("No branches exist yet, creating main branch");
+      await git.checkout(["-b", "main"]);
+      currentBranch = "main";
+    }
+
+    // Get or create files to commit
     let filesToCommit = [...(files || [])];
     if (!filesToCommit.length) {
-      console.log("No files provided, fetching documents from database");
       const documents = await Document.find({ folder: folderId });
       console.log(`Found ${documents.length} documents in database`);
       filesToCommit = documents.map((doc) => ({
@@ -407,16 +426,14 @@ export const commitChanges = async (req, res) => {
       }));
     }
 
-    console.log(`Processing ${filesToCommit.length} files for commit`);
-
-    // Write files to disk
+    // Write files
     for (const file of filesToCommit) {
       if (!file.path || file.content === undefined) continue;
 
-      // Use absolute path to ensure files are in the right location
+      // Use absolute path
       const filePath = path.join(repoPath, file.path);
 
-      // Create directories for the file if needed
+      // Create directories
       await fs.mkdir(path.dirname(filePath), { recursive: true });
 
       // Write file content
@@ -425,7 +442,6 @@ export const commitChanges = async (req, res) => {
     }
 
     // Stage all files
-    console.log("Staging files");
     await git.add(".");
 
     // Check status before committing
@@ -445,10 +461,8 @@ export const commitChanges = async (req, res) => {
     // Try to push to remote
     try {
       console.log("Pushing to remote");
-      const currentBranch = (await git.branch()).current || "main";
-      console.log("Current branch is:", currentBranch);
+      console.log(`Current branch is: ${currentBranch}`);
 
-      // Check remotes
       const remotes = await git.getRemotes(true);
       console.log("Remotes:", remotes);
 
@@ -459,18 +473,16 @@ export const commitChanges = async (req, res) => {
         await git.addRemote("origin", remoteUrl);
       }
 
-      // Push with explicit branch reference
+      // CRITICAL FIX: Push explicitly using branch name, not commit hash
       console.log(`Pushing branch: ${currentBranch}`);
       await git.push(["-u", "origin", currentBranch]);
     } catch (pushErr) {
       console.error("Push error:", pushErr);
       try {
         // Try force push as fallback
-        const currentBranch = (await git.branch()).current || "main";
         console.log(`Attempting force push to ${currentBranch}`);
         await git.push(["-f", "origin", currentBranch]);
       } catch (forcePushErr) {
-        // Still consider the operation successful since the commit worked
         console.error("Force push also failed:", forcePushErr);
       }
     }
@@ -479,7 +491,7 @@ export const commitChanges = async (req, res) => {
     folder.githubRepo.lastSynced = new Date();
     await folder.save();
 
-    // Change back to original directory before sending response
+    // Change back to original directory
     process.chdir(originalDir);
 
     res.json({
@@ -490,11 +502,11 @@ export const commitChanges = async (req, res) => {
   } catch (error) {
     console.error("Error in commitChanges:", error);
 
-    // IMPORTANT: Always restore original directory
+    // Restore original directory
     try {
       process.chdir(originalDir);
     } catch (cdErr) {
-      // Ignore error changing back
+      // Ignore
     }
 
     res.status(500).json({
