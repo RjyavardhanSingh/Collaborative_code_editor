@@ -1,6 +1,7 @@
 import axios from "axios";
 
-const API_URL = "http://localhost:5000";
+// Use environment variables to determine the API URL
+const API_URL = import.meta.env.VITE_API_URL || "http://localhost:5000";
 
 const api = axios.create({
   baseURL: API_URL,
@@ -9,8 +10,8 @@ const api = axios.create({
   },
 });
 
-// Add a console.log to see what default headers are being set
-console.log("API default headers:", api.defaults.headers.common);
+// Add a console.log to help with debugging
+console.log("API connecting to:", API_URL);
 
 api.interceptors.request.use(
   (config) => {
@@ -32,14 +33,5 @@ api.interceptors.response.use(
     return Promise.reject(error);
   }
 );
-
-export const completeOnboarding = async (preferences) => {
-  try {
-    const response = await api.post("/api/users/onboarding", preferences);
-    return response.data;
-  } catch (error) {
-    throw error.response?.data || { message: "Failed to complete onboarding" };
-  }
-};
 
 export default api;

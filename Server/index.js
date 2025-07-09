@@ -39,7 +39,13 @@ connectDb();
 
 app.use(
   cors({
-    origin: process.env.CLIENT_URL,
+    origin:
+      process.env.NODE_ENV === "production"
+        ? [
+            "https://collaborative-code-editor-chi.vercel.app",
+            process.env.CLIENT_URL,
+          ]
+        : process.env.CLIENT_URL || "http://localhost:5173",
     credentials: true,
   })
 );
