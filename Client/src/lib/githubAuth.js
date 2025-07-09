@@ -154,6 +154,54 @@ export const publishToGitHub = async (
 
     console.log("Published to GitHub:", response.data);
     if (setRepoStatus) setRepoStatus("published");
+
+    // Critical section: Syncing database documents to repository
+    console.log("Syncing database documents to repository...");
+    const documents = await Document.find({ folder: folderId });
+    console.log(`Found ${documents.length} documents in database`);
+
+    // Write each document as a file
+    let fileCount = 0;
+    for (const doc of documents) {
+      if (!doc || !doc.title) continue;
+
+      // Use absolute path to ensure files are in the right location
+      const filePath = path.join(repoPath, doc.title);
+
+      // Ensure subdirectories exist
+      await fs.mkdir(path.dirname(filePath), { recursive: true });
+
+      // Write the file
+      await fs.writeFile(filePath, doc.content || "");
+      console.log(`Written file: ${doc.title}`);
+      fileCount++;
+    }
+    console.log(`Added ${fileCount} files from database to repository`);
+
+    // Create README if requested
+    if (addReadme) {
+      const readmeContent = `# ${name}\n\nThis repository was created with DevUnity Collaborative Code Editor.`;
+      const readmePath = path.join(repoPath, "README.md");
+      await fs.writeFile(readmePath, readmeContent);
+      console.log("Added README.md file");
+    }
+
+    // Make sure .gitignore doesn't exclude our files
+    const gitignorePath = path.join(repoPath, ".gitignore");
+    await fs.writeFile(
+      gitignorePath,
+      "# DevUnity: Allow all files in this repository\n"
+    );
+
+    // Stage all files with detailed logging
+    console.log("Staging all files...");
+    await git.add(".");
+
+    // Check what's staged
+    const status = await git.status();
+    console.log("Staged files:", status.staged);
+    console.log("Created files:", status.created);
+
     return response.data;
   } catch (err) {
     console.error("Failed to publish to GitHub:", err);

@@ -301,8 +301,6 @@ export const getUserRepos = async (req, res) => {
   }
 };
 
-
-
 // Add permission check to all GitHub-related endpoints
 
 // Helper function to check if user has admin rights
@@ -347,9 +345,9 @@ export const commitChanges = async (req, res) => {
 
     // Get GitHub token from multiple possible sources
     let token =
-      req.headers["x-github-token"] || 
+      req.headers["x-github-token"] ||
       (req.headers.authorization?.startsWith("token ") &&
-        req.headers.authorization.substring(6)) || 
+        req.headers.authorization.substring(6)) ||
       req.headers.authorization?.split(" ")[1];
 
     if (!token) {
@@ -362,13 +360,21 @@ export const commitChanges = async (req, res) => {
     const repoPath = path.join(REPOS_DIR, folderId.toString());
     await fs.mkdir(repoPath, { recursive: true });
 
-    // CRITICAL: Change to repository directory BEFORE git operations
-    process.chdir(repoPath);
+    console.log(
+      `Committing changes to folder ${folderId} with ${
+        files ? files.length : 0
+      } files`
+    );
 
-    // Use safe git operation with isolated environment
+    // Change directory to repository path
+    process.chdir(repoPath);
+    console.log(`Changed working directory to: ${repoPath}`);
+
+    // Get or create git repository
     const git = simpleGit({
       baseDir: repoPath,
       binary: "git",
+      // Use environment variables for better isolation
       env: {
         ...process.env,
         GIT_DIR: path.join(repoPath, ".git"),
@@ -377,34 +383,54 @@ export const commitChanges = async (req, res) => {
       },
     });
 
-    // Configure Git user
+    // Check if it's a git repository, initialize if needed
+    const isRepo = await git.checkIsRepo().catch(() => false);
+    if (!isRepo) {
+      await git.init();
+      console.log(`Initialized fresh Git repository`);
+    }
+
+    // Configure Git user - CRITICAL FIX
+    console.log("Configuring Git user");
     await git.addConfig("user.name", "DevUnity User");
     await git.addConfig("user.email", "user@devunity.com");
 
     // CRITICAL FIX: If files array is empty, fetch all documents from database
     let filesToCommit = [...(files || [])];
     if (!filesToCommit.length) {
+      console.log("No files provided, fetching documents from database");
       const documents = await Document.find({ folder: folderId });
-      filesToCommit = documents.map(doc => ({
+      console.log(`Found ${documents.length} documents in database`);
+      filesToCommit = documents.map((doc) => ({
         path: doc.title,
-        content: doc.content || ""
+        content: doc.content || "",
       }));
     }
 
-    // Write files
+    console.log(`Processing ${filesToCommit.length} files for commit`);
+
+    // Write files to disk
     for (const file of filesToCommit) {
       if (!file.path || file.content === undefined) continue;
 
-      const filePath = file.path;
+      // Use absolute path to ensure files are in the right location
+      const filePath = path.join(repoPath, file.path);
+
+      // Create directories for the file if needed
       await fs.mkdir(path.dirname(filePath), { recursive: true });
+
+      // Write file content
       await fs.writeFile(filePath, file.content || "");
+      console.log(`Written file: ${file.path}`);
     }
 
-    // Stage files with force
+    // Stage all files
+    console.log("Staging files");
     await git.add(".");
 
     // Check status before committing
     const status = await git.status();
+    console.log("Git status before commit:", status);
 
     if (status.files.length === 0) {
       process.chdir(originalDir);
@@ -412,28 +438,40 @@ export const commitChanges = async (req, res) => {
     }
 
     // Commit changes
+    console.log(`Committing changes with message: ${message}`);
     const commitResult = await git.commit(message);
+    console.log("Commit successful:", commitResult);
 
     // Try to push to remote
     try {
-      const currentBranch = (await git.branch()).current || "master";
-      const remotes = await git.getRemotes(true);
+      console.log("Pushing to remote");
+      const currentBranch = (await git.branch()).current || "main";
+      console.log("Current branch is:", currentBranch);
 
-      if (remotes.length === 0) {
+      // Check remotes
+      const remotes = await git.getRemotes(true);
+      console.log("Remotes:", remotes);
+
+      if (remotes.length === 0 && folder.githubRepo?.fullName) {
         // Add remote if not already set
         const remoteUrl = `https://oauth2:${token}@github.com/${folder.githubRepo.fullName}.git`;
+        console.log(`Adding remote: origin -> ${folder.githubRepo.fullName}`);
         await git.addRemote("origin", remoteUrl);
       }
 
-      // Push with explicit reference
-      await git.push(["origin", currentBranch]);
+      // Push with explicit branch reference
+      console.log(`Pushing branch: ${currentBranch}`);
+      await git.push(["-u", "origin", currentBranch]);
     } catch (pushErr) {
+      console.error("Push error:", pushErr);
       try {
-        // Try force push
-        const currentBranch = (await git.branch()).current || "master";
+        // Try force push as fallback
+        const currentBranch = (await git.branch()).current || "main";
+        console.log(`Attempting force push to ${currentBranch}`);
         await git.push(["-f", "origin", currentBranch]);
       } catch (forcePushErr) {
-        // We'll still consider the operation successful since the commit worked
+        // Still consider the operation successful since the commit worked
+        console.error("Force push also failed:", forcePushErr);
       }
     }
 
@@ -450,6 +488,8 @@ export const commitChanges = async (req, res) => {
       timestamp: new Date(),
     });
   } catch (error) {
+    console.error("Error in commitChanges:", error);
+
     // IMPORTANT: Always restore original directory
     try {
       process.chdir(originalDir);
@@ -505,7 +545,7 @@ export const getStatus = async (req, res) => {
 
     // Create a completely isolated repository path for this specific folder
     const repoPath = path.join(REPOS_DIR, folderId.toString());
-    
+
     // Ensure this directory exists and is a git repository
     try {
       // Make sure directory exists
@@ -546,7 +586,7 @@ export const getStatus = async (req, res) => {
           try {
             // Try to get token from request
             const token = req.headers.authorization?.split(" ")[1];
-            
+
             if (token) {
               const remoteUrl = `https://oauth2:${token}@github.com/${folder.githubRepo.fullName}.git`;
               try {
@@ -681,7 +721,7 @@ export const syncFilesToRepo = async (req, res) => {
     } catch (e) {
       // Ignore directory change errors
     }
-    
+
     res.status(500).json({ message: error.message });
   }
 };
@@ -1136,7 +1176,10 @@ export const publishToGitHub = async (req, res) => {
 
         // FIX: Set Git user configuration using GitHub user info
         await git.addConfig("user.name", userData.login || "DevUnity User");
-        await git.addConfig("user.email", userData.email || `${userData.login}@users.noreply.github.com`);
+        await git.addConfig(
+          "user.email",
+          userData.email || `${userData.login}@users.noreply.github.com`
+        );
 
         // Add the remote repository URL
         await git.addRemote(
