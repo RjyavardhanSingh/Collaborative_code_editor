@@ -23,12 +23,21 @@ const app = express();
 
 const httpServer = createServer(app);
 
+// Make sure this comes BEFORE the production WebSocket proxy setup
 const io = new Server(httpServer, {
   cors: {
-    origin: process.env.CLIENT_URL || "http://localhost:5173",
+    origin:
+      process.env.NODE_ENV === "production"
+        ? [
+            "https://collaborative-code-editor-chi.vercel.app",
+            process.env.CLIENT_URL,
+          ]
+        : process.env.CLIENT_URL || "http://localhost:5173",
     methods: ["GET", "POST"],
     credentials: true,
   },
+  path: "/socket.io/", // Explicitly set the path
+  transports: ["polling", "websocket"],
 });
 app.use((req, res, next) => {
   req.io = io;
@@ -155,7 +164,11 @@ if (process.env.NODE_ENV === "production") {
       // Log all WebSocket connection attempts to help debug
       console.log(`WebSocket upgrade request for: ${pathname}`);
 
-      if (pathname.startsWith("/sharedb")) {
+      if (pathname.startsWith("/socket.io")) {
+        console.log("Routing to Socket.IO");
+        // Socket.IO already handles its own upgrade
+        return;
+      } else if (pathname.startsWith("/sharedb")) {
         console.log("Routing to ShareDB service");
         sharedbProxy.ws(req, socket, head);
       } else if (pathname.startsWith("/cursors")) {
