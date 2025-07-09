@@ -66,12 +66,6 @@ MongoClient.connect(dbUrl)
       path: "/sharedb", // Match the path in the proxy
     });
 
-    // Add a simple route handler to the HTTP server for easy testing
-    server.on("request", (req, res) => {
-      res.writeHead(200, { "Content-Type": "text/plain" });
-      res.end("ShareDB server is running");
-    });
-
     // Connect any incoming WebSocket connection to ShareDB
     wss.on("connection", (ws, req) => {
       // Extract document ID from URL path
