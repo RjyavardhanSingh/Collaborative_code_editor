@@ -1041,18 +1041,10 @@ export const publishToGitHub = async (req, res) => {
     }
 
     if (!token) {
-      console.log("No GitHub token found in request");
       return res
         .status(401)
         .json({ message: "GitHub token required for publishing" });
     }
-
-    console.log(
-      `Publishing repository for folder ${folderId} using GitHub token: ${token.substring(
-        0,
-        8
-      )}...`
-    );
 
     // Find the folder
     const folder = await Folder.findById(folderId);
@@ -1060,7 +1052,8 @@ export const publishToGitHub = async (req, res) => {
       return res.status(404).json({ message: "Folder not found" });
     }
 
-    // Verify GitHub token
+    // Verify GitHub token and get user information
+    let userData;
     try {
       const response = await fetch("https://api.github.com/user", {
         headers: {
@@ -1073,10 +1066,8 @@ export const publishToGitHub = async (req, res) => {
         return res.status(401).json({ message: "Invalid GitHub token" });
       }
 
-      const userData = await response.json();
-      console.log(`Publishing repo for GitHub user: ${userData.login}`);
+      userData = await response.json();
     } catch (authErr) {
-      console.error("GitHub auth error:", authErr);
       return res
         .status(401)
         .json({ message: "Failed to authenticate with GitHub" });
@@ -1097,7 +1088,7 @@ export const publishToGitHub = async (req, res) => {
             name,
             description: description || "",
             private: isPrivate === true,
-            auto_init: false, // We'll push our existing content
+            auto_init: true,
           }),
         }
       );
@@ -1125,15 +1116,14 @@ export const publishToGitHub = async (req, res) => {
       const repoData = await createRepoResponse.json();
       console.log(`Created GitHub repository: ${repoData.full_name}`);
 
-      // Connect local repo to GitHub - FIX THE SECURITY ISSUE HERE
+      // Connect local repo to GitHub
       const repoPath = path.join(REPOS_DIR, folderId.toString());
 
       try {
         // CRITICAL SECURITY FIX: Create a completely isolated Git repository
-        // First, ensure the directory exists
         await fs.mkdir(repoPath, { recursive: true });
 
-        // CRITICAL: Completely remove any existing Git setup to prevent inheritance issues
+        // Remove any existing .git directory
         try {
           await fs.rm(path.join(repoPath, ".git"), {
             recursive: true,
@@ -1145,7 +1135,6 @@ export const publishToGitHub = async (req, res) => {
 
         // Change to repository directory
         process.chdir(repoPath);
-        console.log("Working directory changed to:", process.cwd());
 
         // Create a new fully isolated Git repository
         const git = simpleGit({
@@ -1164,7 +1153,16 @@ export const publishToGitHub = async (req, res) => {
 
         // Initialize a fresh Git repository
         await git.init();
-        console.log("Initialized fresh Git repository");
+
+        // FIX: Set Git user configuration using GitHub user info
+        await git.addConfig("user.name", userData.login || "DevUnity User");
+        await git.addConfig("user.email", userData.email || `${userData.login}@users.noreply.github.com`);
+
+        // Add the remote repository URL
+        await git.addRemote(
+          "origin",
+          `https://oauth2:${token}@github.com/${repoData.full_name}.git`
+        );
 
         // Create a restrictive .gitignore that properly allows files in the repository
         const gitignoreContent = `# Prevent looking outside this directory
@@ -1172,13 +1170,6 @@ export const publishToGitHub = async (req, res) => {
 # But allow everything inside this directory
 !*`;
         await fs.writeFile(path.join(repoPath, ".gitignore"), gitignoreContent);
-
-        // ADD THIS LINE - Missing step to add the remote repository URL
-        await git.addRemote(
-          "origin",
-          `https://oauth2:${token}@github.com/${repoData.full_name}.git`
-        );
-        console.log(`Added remote: origin -> ${repoData.full_name}`);
 
         // SECURITY FIX: Only add files from database instead of using generic "."
         console.log("Syncing database documents to repository...");
