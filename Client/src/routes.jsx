@@ -17,6 +17,7 @@ const FolderEditor = lazy(() => import("./pages/editor/FolderEditor.jsx"));
 const Projects = lazy(() => import("./pages/projects/Projects.jsx"));
 const GitHubCallback = lazy(() => import("./pages/git/GitHubCallback.jsx"));
 const AnalyticsPage = lazy(() => import("./pages/analytics/AnalyticsPage.jsx"));
+const ProfilePage = lazy(() => import("./pages/profile/ProfilePage.jsx"));
 
 const LoadingFallback = () => (
   <div className="flex items-center justify-center h-screen w-screen">
@@ -127,6 +128,14 @@ export const routes = [
         element: (
           <Suspense fallback={<LoadingFallback />}>
             <AnalyticsPage />
+          </Suspense>
+        ),
+      },
+      {
+        path: "/profile",
+        element: (
+          <Suspense fallback={<LoadingFallback />}>
+            <ProfilePage />
           </Suspense>
         ),
       },

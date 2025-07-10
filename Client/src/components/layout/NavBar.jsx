@@ -299,7 +299,7 @@ export default function Navbar({ children, showBackButton, title, actions }) {
             className="block px-6 py-2.5 text-white hover:bg-gradient-to-r hover:from-blue-500/20 hover:to-purple-600/20 transition-all"
             onClick={() => setIsMobileMenuOpen(false)}
           >
-            <FiUser className="inline mr-2" /> Profile
+            <FiUser className="inline mr-2" /> My Profile
           </Link>
           {currentuser && (
             <button

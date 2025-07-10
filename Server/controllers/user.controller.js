@@ -201,7 +201,6 @@ export const cancelInvitation = async (req, res) => {
   }
 };
 
-
 export const getSharedContent = async (req, res) => {
   try {
     const userId = req.params.id;
@@ -312,4 +311,51 @@ const countDocumentsInFolderTree = async (folderId) => {
   });
 
   return count;
+};
+
+export const deleteAccount = async (req, res) => {
+  try {
+    const userId = req.params.id;
+
+    // Verify the user can only delete their own account
+    if (req.user._id.toString() !== userId) {
+      return res.status(403).json({
+        message: "Not authorized to delete this account",
+      });
+    }
+
+    // Find the user
+    const user = await User.findById(userId);
+    if (!user) {
+      return res.status(404).json({ message: "User not found" });
+    }
+
+    // Delete all documents owned by the user
+    await Document.deleteMany({ owner: userId });
+
+    // Remove user from collaborators in all documents
+    await Document.updateMany(
+      { "collaborators.user": userId },
+      { $pull: { collaborators: { user: userId } } }
+    );
+
+    // Delete all folders owned by the user
+    await Folder.deleteMany({ owner: userId });
+
+    // Delete all invitations related to the user
+    await Invitation.deleteMany({
+      $or: [{ sender: userId }, { recipient: userId }],
+    });
+
+    // Delete user sessions
+    await Session.deleteMany({ userId });
+
+    // Finally delete the user account
+    await User.findByIdAndDelete(userId);
+
+    res.json({ message: "Account deleted successfully" });
+  } catch (error) {
+    console.error("Error deleting account:", error);
+    res.status(500).json({ message: error.message });
+  }
 };

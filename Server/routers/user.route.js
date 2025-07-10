@@ -7,7 +7,8 @@ import {
   getInvitationCount,
   getInvitations,
   cancelInvitation,
-  getSharedContent, // <-- Import the new controller function
+  getSharedContent,
+  deleteAccount, // Add this import
 } from "../controllers/user.controller.js";
 import { protect } from "../middlewares/auth.js";
 
@@ -20,6 +21,8 @@ router.post("/onboarding", protect, completeOnboarding);
 
 router.get("/:id", protect, getUserProfile);
 router.put("/:id", protect, updateUserProfile);
+router.delete("/:id", protect, deleteAccount); // Add this route
 router.get("/:id/documents", protect, getUserDocuments);
-router.get("/:id/shared", protect, getSharedContent); 
+router.get("/:id/shared", protect, getSharedContent);
+
 export default router;
